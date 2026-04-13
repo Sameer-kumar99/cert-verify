@@ -38,7 +38,13 @@ const CERT_KEYWORDS = new Set([
   'design','marketing','finance','health','medical','law','arts','education',
   'issued','date','year','month','january','february','march','april','may',
   'june','july','august','september','october','november','december','score',
-  'grade','pass','distinction','merit','honor','excellence','achievement'
+  'grade','pass','distinction','merit','honor','excellence','achievement',
+  // role/title words that appear near instructor names
+  'principal','senior','junior','lead','chief','head','director','manager',
+  'technologist','technician','engineer','developer','analyst','specialist',
+  'certication','certification','authorized','non','credit','services','essentials',
+  'fundamentals','intermediate','advanced','beginners','introduction','complete',
+  'guide','masterclass','bootcamp','workshop','seminar','webinar','conference'
 ]);
 
 // ─── OCR: EXTRACT TEXT FROM IMAGE BUFFER ─────────────────────────────────────
@@ -64,37 +70,49 @@ async function extractTextFromPDF(buffer) {
 
 // ─── NAME DETECTION (NER-LITE) ───────────────────────────────────────────────
 // Uses capitalization patterns + keyword filtering to detect human names
+// Handles: "John Doe", "kashish Adwani" (lowercase start), "Priya Sharma Nair"
 function detectNames(rawText) {
   const lines = rawText.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
   const candidates = [];
 
   for (const line of lines) {
-    // Look for 2-4 capitalized words in a row (typical name pattern)
-    const namePattern = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\b/g;
-    let match;
-    while ((match = namePattern.exec(line)) !== null) {
-      const phrase = match[1].trim();
-      const words = phrase.split(' ');
+    // Pattern 1: Standard "Firstname Lastname" (both capitalised)
+    const stdPattern = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\b/g;
+    // Pattern 2: Mixed-case like "kashish Adwani" (first word may be lowercase)
+    const mixedPattern = /\b([a-z][a-z]{1,19}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})\b/g;
 
-      // Filter: skip if any word is a known keyword
-      const hasKeyword = words.some(w => CERT_KEYWORDS.has(w.toLowerCase()));
-      if (hasKeyword) continue;
+    for (const pattern of [stdPattern, mixedPattern]) {
+      let match;
+      while ((match = pattern.exec(line)) !== null) {
+        const phrase = match[1].trim();
+        const words = phrase.split(' ');
 
-      // Filter: skip if phrase is too short or all caps (likely a title/header)
-      if (phrase.length < 5) continue;
-      if (phrase === phrase.toUpperCase()) continue;
+        // Filter: skip if any word is a known keyword
+        const hasKeyword = words.some(w => CERT_KEYWORDS.has(w.toLowerCase()));
+        if (hasKeyword) continue;
 
-      // Score: prefer phrases where words look like names (2-3 words)
-      const score = words.length >= 2 && words.length <= 4 ? 1 : 0.5;
-      candidates.push({ name: phrase, score });
+        // Filter: skip short phrases or all-caps (headers/titles)
+        if (phrase.length < 4) continue;
+        if (phrase === phrase.toUpperCase()) continue;
+
+        // Score: 2-3 word names score highest; mixed-case (lowercase start) slightly lower
+        const isStdCase = /^[A-Z]/.test(phrase);
+        // Lines near top of cert = more likely to be the recipient
+        const lineIndex = lines.indexOf(line);
+        const positionBonus = Math.max(0, 1 - lineIndex * 0.05);
+        const score = (words.length >= 2 && words.length <= 3 ? 1 : 0.6) * (isStdCase ? 1 : 0.9) + positionBonus;
+        candidates.push({ name: phrase, score });
+      }
     }
   }
 
   if (candidates.length === 0) return null;
 
-  // Sort by score descending, return top candidate
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0].name;
+  // Deduplicate and sort by score descending
+  const seen = new Set();
+  const unique = candidates.filter(c => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+  unique.sort((a, b) => b.score - a.score);
+  return unique[0].name;
 }
 
 // ─── QR CODE DETECTION ───────────────────────────────────────────────────────
@@ -114,7 +132,28 @@ async function extractQRCode(buffer, mimetype) {
 // ─── URL EXTRACTION FROM TEXT ─────────────────────────────────────────────────
 function extractURLs(text) {
   const urlPattern = /https?:\/\/[^\s<>"{}|\\^`\[\]]+/g;
-  return (text.match(urlPattern) || []).slice(0, 3); // max 3 URLs
+
+  // Strategy 1: normal scan (URLs with no spaces)
+  const normal = (text.match(urlPattern) || []);
+  if (normal.length > 0) return normal.slice(0, 3);
+
+  // Strategy 2: PDFs embed spaces INSIDE URL tokens (e.g. "https://cour sera.org/ver ify/...")
+  // Find any line with "http", collapse ALL spaces on that line, then re-scan
+  const lines = text.split(/\n|\r/);
+  for (const line of lines) {
+    if (/https?:/i.test(line)) {
+      const collapsed = line.replace(/[ \t]/g, '');
+      const m = collapsed.match(/https?:\/\/[^\s"'<>]+/);
+      if (m) return [m[0]];
+    }
+  }
+
+  // Strategy 3: scan all adjacent lines near "verify" keyword for a fragmented URL
+  const joined = text.replace(/[ \t]/g, ''); // collapse horizontal spaces only
+  const m2 = joined.match(/https?:\/\/[^\n"'<>\s]+/g);
+  if (m2 && m2.length > 0) return m2.slice(0, 3);
+
+  return [];
 }
 
 // ─── LINK SCRAPING ────────────────────────────────────────────────────────────
