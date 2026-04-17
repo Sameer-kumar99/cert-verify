@@ -287,6 +287,21 @@ export default function App() {
                                         {r.verificationUrl.length > 60 ? r.verificationUrl.slice(0,57)+'…' : r.verificationUrl}
                                       </a>
                                       {r.pageTitle && <p className="page-title">Page: "{r.pageTitle}"</p>}
+                                      {r.scrapeMethod && <p className="page-title">Method: {r.scrapeMethod}</p>}
+                                      {r.allNamesOnPage && r.allNamesOnPage.length > 0 && (
+                                        <div style={{marginTop:'8px'}}>
+                                          <p style={{fontSize:'0.72rem',color:'var(--muted)',marginBottom:'4px'}}>Names found on page:</p>
+                                          <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
+                                            {r.allNamesOnPage.slice(0,8).map((n,i) => (
+                                              <span key={i} style={{
+                                                fontFamily:'var(--mono)',fontSize:'0.7rem',padding:'2px 7px',
+                                                borderRadius:'12px',background:'var(--bg)',border:'1px solid var(--border)',
+                                                color: n === r.verifiedName ? '#4ade80' : 'var(--muted)'
+                                              }}>{n}</span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                     </div>
                                   )}
                                   {r.qrContent && (
