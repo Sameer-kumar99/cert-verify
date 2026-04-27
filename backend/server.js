@@ -27,41 +27,72 @@ const upload = multer({
 
 // ─── KNOWN CERTIFICATE KEYWORDS TO FILTER DURING NAME DETECTION ─────────────
 const CERT_KEYWORDS = new Set([
-  'coursera','udemy','certificate','completion','certify','awarded','issued',
-  'instructor','authorized','signature','verify','credential','achievement',
-  'stanford','harvard','mit','yale','oxford','cambridge','google','microsoft',
-  'amazon','ibm','oracle','cisco','adobe','congratulations','successfully',
-  'completed','presented','hereby','certifies','this','that','university',
-  'college','institute','school','academy','online','learning','platform',
-  'course','program','module','training','bootcamp','nanodegree','professional',
-  'development','engineering','science','technology','management','business',
-  'design','marketing','finance','health','medical','law','arts','education',
-  'issued','date','year','month','january','february','march','april','may',
-  'june','july','august','september','october','november','december','score',
-  'grade','pass','distinction','merit','honor','excellence','achievement',
-  // role/title words that appear near instructor names
+  // Platforms
+  'coursera','udemy','edx','linkedin','skillshare','pluralsight','codecademy',
+  'datacamp','kaggle','alison','futurelearn','swayam','nptel','simplilearn',
+  // Certificate language
+  'certificate','completion','certify','awarded','issued','certifies','hereby',
+  'presented','this','that','credential','achievement','successfully','completed',
+  'congratulations','verify','verification','authorized','signature','confirmed',
+  'participation','proud','announce','recognition','honour','honor','distinction',
+  // Academic institutions (generic)
+  'university','college','institute','school','academy','department','faculty',
+  'stanford','harvard','mit','yale','oxford','cambridge','illinois','georgia',
+  'michigan','duke','cornell','columbia','princeton','caltech','carnegie',
+  // Tech companies as issuers
+  'google','microsoft','amazon','ibm','oracle','cisco','adobe','meta','apple',
+  'salesforce','atlassian','hubspot','aws','azure','gcp',
+  // Course/subject words that look like names when Title Cased
+  'retrieval','search','engines','machine','learning','deep','neural','network',
+  'data','analytics','science','artificial','intelligence','natural','language',
+  'processing','computer','vision','cloud','computing','security','blockchain',
+  'python','javascript','react','angular','node','java','swift','kotlin','sql',
+  'statistics','probability','algebra','calculus','biology','chemistry','physics',
+  'history','geography','economics','accounting','finance','marketing','business',
+  'management','leadership','communication','strategy','operations','supply',
+  'chain','logistics','entrepreneurship','innovation','digital','transformation',
+  'architecture','infrastructure','devops','agile','scrum','product','project',
+  'art','arts','history','literature','philosophy','ethics','social','cultural',
+  'text','information','retrieval','web','internet','systems','algorithms',
+  'structures','databases','networks','programming','software','hardware',
+  // Role/title words near instructor names
   'principal','senior','junior','lead','chief','head','director','manager',
+  'instructor','professor','teacher','faculty','dean','president','founder',
   'technologist','technician','engineer','developer','analyst','specialist',
-  'certication','certification','authorized','non','credit','services','essentials',
-  'fundamentals','intermediate','advanced','beginners','introduction','complete',
-  'guide','masterclass','bootcamp','workshop','seminar','webinar','conference'
+  'researcher','scientist','architect','consultant','advisor','mentor','coach',
+  // Training / certification qualifiers
+  'training','certification','certication','non','credit','online','offline',
+  'services','essentials','fundamentals','intermediate','advanced','beginner',
+  'introduction','complete','guide','masterclass','bootcamp','workshop',
+  'seminar','webinar','conference','program','module','course','nanodegree',
+  'professional','development','specialization','pathway','track','series',
+  // Time words
+  'january','february','march','april','may','june','july','august',
+  'september','october','november','december','jan','feb','mar','apr',
+  'jun','jul','aug','sep','oct','nov','dec','issued','date','year','month',
+  // Misc noise
+  'score','grade','pass','fail','rank','level','stage','phase','step',
+  'unit','week','hour','minute','second','point','percent','total','final',
+  'quiz','exam','test','assignment','project','capstone','thesis',
 ]);
 
-const NAME_REJECT_WORDS = new Set([
-  'course','certificate','certification','training','program','module','bootcamp',
-  'lecture','session','workshop','seminar','webinar','conference','class',
-  'introduction','intro','advanced','intermediate','fundamentals','essentials',
-  'professional','business','learning','education','development',
-  'machine','learning','data','science','text','retrieval','search','engines',
-  'natural','language','processing','analytics','model','evaluation','database',
-  'vector','technology','information','architecture','statistics','marketing',
-  'design','health','medical','law','finance','management','skill','coursework',
-  'ethical','hacking','security','cloud','platform','online','academic',
-  'art','history','product','manager','academy','bookkeeping','income','skills',
-  'learn','artificial','coursera','inc','microsoft','windows','free','courses',
-  'for','everyone','certificate','coursera','credentials','educators','top',
-  'enroll','seo','uia','ux','database','model','evaluation','vector','big','data'
-]);
+// ─── TITLE-CASE CONVERTER (for ALL-CAPS names like "AYAZ ALAM") ──────────────
+function toTitleCase(str) {
+  return str.toLowerCase().replace(/\b([a-z])/g, c => c.toUpperCase());
+}
+
+// ─── NORMALISE RAW TEXT LINE FOR NAME SCANNING ───────────────────────────────
+// Converts "AYAZ ALAM" → "Ayaz Alam", leaves mixed-case unchanged
+function normaliseLine(line) {
+  const trimmed = line.trim();
+  // If entire line is ALL CAPS words (2–4 words, no digits), convert to Title Case
+  const words = trimmed.split(/\s+/);
+  const allCaps = words.every(w => /^[A-Z]{2,}$/.test(w));
+  if (allCaps && words.length >= 2 && words.length <= 4) {
+    return toTitleCase(trimmed);
+  }
+  return trimmed;
+}
 
 // ─── OCR: EXTRACT TEXT FROM IMAGE BUFFER ─────────────────────────────────────
 async function extractTextFromImage(buffer) {
@@ -85,48 +116,73 @@ async function extractTextFromPDF(buffer) {
 }
 
 // ─── NAME DETECTION (NER-LITE) ───────────────────────────────────────────────
-// Uses capitalization patterns + keyword filtering to detect human names
-// Handles: "John Doe", "kashish Adwani" (lowercase start), "Priya Sharma Nair"
+// Handles: "John Doe", "kashish Adwani", "AYAZ ALAM" (all-caps), "Priya Sharma Nair"
 function detectNames(rawText) {
-  const lines = rawText.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
+  const rawLines = rawText.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
   const candidates = [];
 
-  for (const line of lines) {
-    // Pattern 1: Standard "Firstname Lastname" (both capitalised)
-    const stdPattern = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\b/g;
-    // Pattern 2: Mixed-case like "kashish Adwani" (first word may be lowercase)
-    const mixedPattern = /\b([a-z][a-z]{1,19}\s+[A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){0,2})\b/g;
+  // Scan both original and normalised versions of each line
+  for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex++) {
+    const rawLine   = rawLines[lineIndex];
+    const normLine  = normaliseLine(rawLine);  // converts ALL-CAPS lines to Title Case
+    const linesToScan = rawLine === normLine ? [normLine] : [normLine, rawLine];
 
-    for (const pattern of [stdPattern, mixedPattern]) {
-      let match;
-      while ((match = pattern.exec(line)) !== null) {
-        const phrase = match[1].trim();
-        const words = phrase.split(' ');
+    for (const line of linesToScan) {
+      // Pattern 1: Standard "Firstname Lastname" (both capitalised)
+      const stdPattern = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
+      // Pattern 2: Mixed-case like "kashish Adwani" (first word lowercase)
+      const mixedPattern = /\b([a-z][a-z]{1,24}\s+[A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){0,2})\b/g;
 
-        // Filter: skip if any word is a known keyword
-        const hasKeyword = words.some(w => CERT_KEYWORDS.has(w.toLowerCase()));
-        if (hasKeyword) continue;
+      for (const pattern of [stdPattern, mixedPattern]) {
+        let match;
+        while ((match = pattern.exec(line)) !== null) {
+          const phrase = match[1].trim();
+          const words  = phrase.split(/\s+/).filter(Boolean);
 
-        // Filter: skip short phrases or all-caps (headers/titles)
-        if (phrase.length < 4) continue;
-        if (phrase === phrase.toUpperCase()) continue;
+          // Must be 2–4 words
+          if (words.length < 2 || words.length > 4) continue;
 
-        // Score: 2-3 word names score highest; mixed-case (lowercase start) slightly lower
-        const isStdCase = /^[A-Z]/.test(phrase);
-        // Lines near top of cert = more likely to be the recipient
-        const lineIndex = lines.indexOf(line);
-        const positionBonus = Math.max(0, 1 - lineIndex * 0.05);
-        const score = (words.length >= 2 && words.length <= 3 ? 1 : 0.6) * (isStdCase ? 1 : 0.9) + positionBonus;
-        candidates.push({ name: phrase, score });
+          // Filter: skip if ANY word is a known keyword
+          if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
+
+          // Filter: skip all-uppercase remnants (shouldn't happen after normalise, but safety net)
+          if (phrase === phrase.toUpperCase()) continue;
+
+          // Filter: skip very short phrases
+          if (phrase.replace(/\s/g, '').length < 5) continue;
+
+          // Filter: skip phrases that look like course titles
+          // (more than 1 of the top-3 words are common English nouns/verbs)
+          const ENGLISH_COMMON = new Set(['text','web','data','search','deep','model',
+            'cloud','smart','open','free','fast','safe','real','next','core','full',
+            'good','best','top','new','old','big','high','low','key','hot','live']);
+          if (words.filter(w => ENGLISH_COMMON.has(w.toLowerCase())).length > 1) continue;
+
+          // Score calculation
+          const isStdCase    = /^[A-Z]/.test(phrase);
+          const wasAllCaps   = rawLine === rawLine.toUpperCase() && rawLine.replace(/\s/g,'').length > 3;
+          const positionBonus = Math.max(0, 1.5 - lineIndex * 0.08); // early lines score higher
+          const lengthScore  = words.length === 2 ? 1.0 : words.length === 3 ? 0.95 : 0.7;
+          const caseScore    = isStdCase ? 1.0 : 0.88;
+          const allCapsBonus = wasAllCaps ? 0.1 : 0; // trust normalised all-caps lines
+
+          const score = lengthScore * caseScore + positionBonus + allCapsBonus;
+          candidates.push({ name: phrase, score, lineIndex });
+        }
       }
     }
   }
 
   if (candidates.length === 0) return null;
 
-  // Deduplicate and sort by score descending
+  // Deduplicate by name string
   const seen = new Set();
-  const unique = candidates.filter(c => { if (seen.has(c.name)) return false; seen.add(c.name); return true; });
+  const unique = candidates.filter(c => {
+    if (seen.has(c.name.toLowerCase())) return false;
+    seen.add(c.name.toLowerCase());
+    return true;
+  });
+
   unique.sort((a, b) => b.score - a.score);
   return unique[0].name;
 }
@@ -232,7 +288,7 @@ async function scrapeVerificationPage(url) {
       const m = bodyText.match(pat);
       if (m && m[1]) {
         const name = m[1].trim().replace(/[.,;:]+$/, '');
-        if (isLikelyPersonName(name)) {
+        if (name.length > 2 && name.split(' ').length >= 2) {
           return { verifiedName: name, allNamesOnPage: [name], pageTitle, method: 'completed-by-pattern' };
         }
       }
@@ -264,28 +320,46 @@ async function scrapeVerificationPage(url) {
     for (const sel of prioritySelectors) {
       try {
         const text = $(sel).first().text().trim();
-        if (text && text.length > 2 && text.length < 80 && text.split(' ').length >= 2 && isLikelyPersonName(text)) {
+        if (text && text.length > 2 && text.length < 80 && text.split(' ').length >= 2) {
           return { verifiedName: text, allNamesOnPage: [text], pageTitle, method: 'css-selector' };
         }
       } catch { continue; }
     }
 
     // ── STRATEGY 3: Collect ALL names on the page, return as pool ─────────────
-    // The caller will compare the detected cert name against this entire pool
+    // Normalise ALL-CAPS segments too (e.g. "AYAZ ALAM" on some cert pages)
+    const normalisedBody = bodyText.replace(/\b([A-Z]{2,}(?:\s+[A-Z]{2,}){1,3})\b/g, (m) => {
+      // Only convert if it looks like 2-4 all-caps words (likely a name)
+      const words = m.split(' ');
+      if (words.length >= 2 && words.length <= 4) return toTitleCase(m);
+      return m;
+    });
+
     const allNamesOnPage = [];
-    const nameRegex = /\b([A-Z][a-z]{1,20}(?:\s+[A-Z][a-z]{1,20}){1,3})\b/g;
-    let nm;
-    while ((nm = nameRegex.exec(bodyText)) !== null) {
-      const candidate = nm[1].trim();
-      if (isLikelyPersonName(candidate)) {
+    // Scan both original and normalised body for maximum coverage
+    for (const body of [bodyText, normalisedBody]) {
+      const nameRegex = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
+      let nm;
+      while ((nm = nameRegex.exec(body)) !== null) {
+        const candidate = nm[1].trim();
+        const words = candidate.split(/\s+/);
+        if (words.length < 2 || words.length > 4) continue;
+        if (candidate.length < 5) continue;
+        // Skip if any word is a cert keyword
+        if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
         allNamesOnPage.push(candidate);
       }
     }
 
-    // Deduplicate
-    const uniqueNames = [...new Set(allNamesOnPage)];
+    // Deduplicate (case-insensitive)
+    const seenNames = new Set();
+    const uniqueNames = allNamesOnPage.filter(n => {
+      const key = n.toLowerCase();
+      if (seenNames.has(key)) return false;
+      seenNames.add(key);
+      return true;
+    });
 
-    // If we found names, return the pool — comparison engine will find the best match
     if (uniqueNames.length > 0) {
       return { verifiedName: null, allNamesOnPage: uniqueNames, pageTitle, method: 'name-pool' };
     }
@@ -296,66 +370,116 @@ async function scrapeVerificationPage(url) {
   }
 }
 
-// ─── NAME NORMALIZATION / TOKEN MATCHING ─────────────────────────────────────
-function splitNameTokens(name) {
-  return normalizeName(name).split(' ').filter(Boolean);
+// ─── NAME CLEANING ────────────────────────────────────────────────────────────
+// Strips noise, normalises ALL-CAPS, splits CamelCase-concatenated date suffixes
+const MONTH_NAMES = new Set(['january','february','march','april','may','june','july','august','september','october','november','december','jan','feb','mar','apr','jun','jul','aug','sep','oct','nov','dec']);
+
+function cleanName(raw) {
+  if (!raw) return '';
+  let name = raw.trim();
+
+  // 1. Normalise ALL-CAPS names → Title Case ("AYAZ ALAM" → "Ayaz Alam")
+  const allCapsWords = name.split(/\s+/);
+  if (allCapsWords.every(w => /^[A-Z]{2,}$/.test(w))) {
+    name = toTitleCase(name);
+  }
+
+  // 2. Split on camelCase boundary (catches "SharmaNovember" → "Sharma November")
+  name = name.replace(/([a-z])([A-Z])/g, '$1 $2');
+
+  // 3. Remove trailing digits (day/year numbers)
+  name = name.replace(/\s*\d+\s*$/, '').trim();
+
+  // 4. Drop trailing month names
+  const words = name.split(/\s+/).filter(Boolean);
+  while (words.length > 0 && MONTH_NAMES.has(words[words.length - 1].toLowerCase())) {
+    words.pop();
+  }
+  // 5. Drop trailing year tokens
+  while (words.length > 0 && /^(19|20)\d{2}$/.test(words[words.length - 1])) {
+    words.pop();
+  }
+  // 6. Reject if fewer than 2 words remain (wasn't a name)
+  if (words.length < 1) return raw.trim();
+
+  return words.join(' ').trim();
 }
 
-function hasFirstAndOtherNameMatch(name1, name2) {
-  const tokens1 = splitNameTokens(name1);
-  const tokens2 = splitNameTokens(name2);
-  if (tokens1.length < 2 || tokens2.length < 2) return false;
-  if (tokens1[0] !== tokens2[0]) return false;
-
-  const rest1 = tokens1.slice(1);
-  const rest2 = tokens2.slice(1);
-  return rest1.some(part1 => rest2.some(part2 => part1 === part2 || part1.startsWith(part2) || part2.startsWith(part1)));
+// ─── EXTRACT FIRST NAME ───────────────────────────────────────────────────────
+function firstName(name) {
+  if (!name) return '';
+  const cleaned = cleanName(name);
+  return cleaned.split(/\s+/)[0].toLowerCase();
 }
 
 // ─── FUZZY NAME COMPARISON ────────────────────────────────────────────────────
-function normalizeName(name) {
-  return name
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z\s'-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
+// Signals (weighted):
+//   50% first-name similarity  — most reliable single token
+//   25% full-name Dice         — overall string similarity
+//   25% token-set overlap      — handles reordered / partial names
+// Rules:
+//   • First-name EXACT match → floor score at 0.85 (always REAL)
+//   • All tokens of cert name found in page name → floor at 0.90
+function compareNames(raw1, raw2) {
+  if (!raw1 || !raw2) return 0;
 
-function isLikelyPersonName(name) {
-  if (!name || typeof name !== 'string') return false;
-  const normalized = normalizeName(name);
-  const tokens = normalized.split(' ').filter(Boolean);
-  if (tokens.length < 2 || tokens.length > 4) return false;
-  if (tokens.some(token => token.length < 2)) return false;
-  if (tokens.some(token => NAME_REJECT_WORDS.has(token))) return false;
-  if (tokens.some(token => /\d/.test(token))) return false;
-  if (!tokens.every(token => /^[a-z'-]{2,20}$/.test(token))) return false;
-  return true;
-}
+  const n1 = cleanName(raw1).toLowerCase();
+  const n2 = cleanName(raw2).toLowerCase();
+  if (!n1 || !n2) return 0;
 
-function compareNames(name1, name2) {
-  if (!name1 || !name2) return 0;
-  const n1 = normalizeName(name1);
-  const n2 = normalizeName(name2);
-  return stringSimilarity.compareTwoStrings(n1, n2);
+  // Signal 1: full name Dice similarity
+  const fullSim = stringSimilarity.compareTwoStrings(n1, n2);
+
+  // Signal 2: first name
+  const fn1 = firstName(raw1);
+  const fn2 = firstName(raw2);
+  const firstNameSim   = stringSimilarity.compareTwoStrings(fn1, fn2);
+  const firstNameExact = fn1.length >= 2 && fn1 === fn2;
+
+  // Signal 3: token-set overlap (handles "Ayaz Alam" vs "Ayaz Alam September")
+  const tokens1 = n1.split(/\s+/).filter(t => t.length >= 2);
+  const tokens2 = n2.split(/\s+/).filter(t => t.length >= 2);
+  const matchedTokens = tokens1.filter(t1 =>
+    tokens2.some(t2 => stringSimilarity.compareTwoStrings(t1, t2) >= 0.85)
+  );
+  const tokenOverlap = tokens1.length > 0 ? matchedTokens.length / tokens1.length : 0;
+
+  // Signal 4: last name (if both have 2+ tokens)
+  let lastNameSim = 0;
+  if (tokens1.length >= 2 && tokens2.length >= 2) {
+    lastNameSim = stringSimilarity.compareTwoStrings(
+      tokens1[tokens1.length - 1],
+      tokens2[tokens2.length - 1]
+    );
+  }
+
+  // Composite: first-name 45%, full 20%, token-set 25%, last-name 10%
+  const composite = (firstNameSim * 0.45) + (fullSim * 0.20) + (tokenOverlap * 0.25) + (lastNameSim * 0.10);
+
+  // Rule: first name exact match → floor at 0.85 (→ REAL)
+  if (firstNameExact && composite < 0.85) return 0.85;
+
+  // Rule: ALL cert tokens found in page name → floor at 0.90
+  if (tokens1.length >= 2 && matchedTokens.length === tokens1.length && composite < 0.90) return 0.90;
+
+  return Math.min(composite, 1.0);
 }
 
 // ─── COMPARE CERT NAME AGAINST POOL OF NAMES FROM VERIFICATION PAGE ──────────
-// Returns { bestMatch, similarity, firstOtherMatch }
+// Returns { bestMatch, cleanedMatch, similarity, signals }
 function findBestMatch(certName, namesPool) {
-  if (!certName || !namesPool || namesPool.length === 0) return { bestMatch: null, similarity: 0, firstOtherMatch: false };
-  let best = { bestMatch: null, similarity: 0, firstOtherMatch: false };
-  for (const candidate of namesPool) {
-    if (hasFirstAndOtherNameMatch(certName, candidate)) {
-      return { bestMatch: candidate, similarity: 1, firstOtherMatch: true };
-    }
-    if (!isLikelyPersonName(candidate)) continue;
+  if (!certName || !namesPool || namesPool.length === 0) {
+    return { bestMatch: null, cleanedMatch: null, similarity: 0 };
+  }
 
-    const sim = compareNames(certName, candidate);
+  const cleanedCert = cleanName(certName);
+  let best = { bestMatch: null, cleanedMatch: null, similarity: 0 };
+
+  for (const candidate of namesPool) {
+    const cleanedCandidate = cleanName(candidate);
+    const sim = compareNames(cleanedCert, cleanedCandidate);
     if (sim > best.similarity) {
-      best = { bestMatch: candidate, similarity: sim, firstOtherMatch: false };
+      best = { bestMatch: candidate, cleanedMatch: cleanedCandidate, similarity: sim };
     }
   }
   return best;
@@ -444,43 +568,51 @@ async function verifyCertificate(file) {
     }
 
     // ── STEP 6: COMPARISON + STATUS ───────────────────────────────────────────
-    // Core logic: compare detectedName against the ENTIRE pool of names from page.
-    // As soon as any name in the pool matches above threshold → REAL.
+    // Multi-signal comparison: first name weighted 50%, full name 35%, last name 15%.
+    // Cleaned names (month/date noise stripped) are used for display.
+    // First-name exact match floors composite at 0.82 → always REAL.
     if (result.verificationUrl) {
       if (result.detectedName && result.allNamesOnPage && result.allNamesOnPage.length > 0) {
-        const { bestMatch, similarity, firstOtherMatch } = findBestMatch(result.detectedName, result.allNamesOnPage);
-        result.verifiedName = bestMatch;   // best matching name from page
+        const { bestMatch, cleanedMatch, similarity } = findBestMatch(result.detectedName, result.allNamesOnPage);
+
+        // Display the cleaned version of the best match (no trailing dates/months)
+        const cleanedCert = cleanName(result.detectedName);
+        result.verifiedName = cleanedMatch || bestMatch;
+        result.detectedName = cleanedCert; // also clean the cert-side name for display
         result.similarity = similarity;
 
-        if (firstOtherMatch) {
+        const fn1 = firstName(cleanedCert);
+        const fn2 = firstName(cleanedMatch || bestMatch || '');
+        const firstNameMatched = fn1 && fn2 && fn1 === fn2;
+
+        if (similarity >= 0.80) {
           result.status = 'REAL';
-          result.confidence = 1;
-          result.reasons.push(`Verified by first-name + other name part match: "${result.detectedName}" vs "${bestMatch}"`);
-        } else if (similarity >= 0.80) {
-          result.status = 'REAL';
-          result.confidence = similarity;
-          result.reasons.push(`Name verified: "${result.detectedName}" matched "${bestMatch}" with ${(similarity * 100).toFixed(0)}% similarity`);
+          result.confidence = Math.min(similarity, 1.0);
+          const matchDetail = firstNameMatched
+            ? `first name "${fn1}" matched exactly`
+            : `${(similarity * 100).toFixed(0)}% similarity`;
+          result.reasons.push(`✅ Name verified: "${cleanedCert}" → "${result.verifiedName}" (${matchDetail})`);
         } else if (similarity >= 0.50) {
           result.status = 'SUSPICIOUS';
           result.confidence = similarity * 0.7;
-          result.reasons.push(`Partial match (${(similarity * 100).toFixed(0)}%): "${result.detectedName}" vs "${bestMatch}" — manual review recommended`);
+          result.reasons.push(`⚠️ Partial match (${(similarity * 100).toFixed(0)}%): cert says "${cleanedCert}", page shows "${result.verifiedName}" — manual review recommended`);
         } else {
           result.status = 'FAKE';
-          result.confidence = 1 - similarity;
-          result.reasons.push(`Name not found on verification page — cert says "${result.detectedName}" but page shows "${bestMatch || 'unknown'}"`);
+          result.confidence = parseFloat((1 - similarity).toFixed(2));
+          result.reasons.push(`❌ Name not found on verification page — cert says "${cleanedCert}", closest match on page was "${result.verifiedName || 'none'}"`);
         }
       } else if (result.detectedName && (!result.allNamesOnPage || result.allNamesOnPage.length === 0)) {
         result.status = 'SUSPICIOUS';
         result.confidence = 0.35;
-        result.reasons.push('Verification page loaded but no names could be extracted from it');
+        result.reasons.push('⚠️ Verification page loaded but no names could be extracted from it');
       } else if (!result.detectedName && result.allNamesOnPage && result.allNamesOnPage.length > 0) {
         result.status = 'SUSPICIOUS';
         result.confidence = 0.4;
-        result.reasons.push('URL verified but could not extract name from certificate');
+        result.reasons.push('⚠️ URL verified but could not extract recipient name from certificate text');
       } else {
         result.status = 'SUSPICIOUS';
         result.confidence = 0.3;
-        result.reasons.push('Verification page found but no names could be compared on either side');
+        result.reasons.push('⚠️ Verification page found but no names could be compared on either side');
       }
     } else {
       // No URL / QR

@@ -254,7 +254,14 @@ export default function App() {
                           <td><span className="name-pill">{r.detectedName || <em>not found</em>}</span></td>
                           <td>
                             {r.verifiedName
-                              ? <span className="name-pill verified">{r.verifiedName}</span>
+                              ? <span className="name-pill verified" title={r.verifiedName}>
+                                  {(() => {
+                                    const parts = r.verifiedName.trim().split(' ');
+                                    return parts.length >= 2
+                                      ? <>{parts[0]}{' '}<span style={{opacity:0.6,fontSize:'0.71rem'}}>{parts.slice(1).join(' ')}</span></>
+                                      : r.verifiedName;
+                                  })()}
+                                </span>
                               : r.verificationUrl
                                 ? <em className="muted">page found, no name</em>
                                 : <em className="muted">no URL to verify</em>}
