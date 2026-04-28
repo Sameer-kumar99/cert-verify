@@ -263,8 +263,8 @@ export default function App() {
                                   })()}
                                 </span>
                               : r.verificationUrl
-                                ? <em className="muted">page found, no name</em>
-                                : <em className="muted">no URL to verify</em>}
+                                ? <span className="name-pill" style={{borderColor:'rgba(245,158,11,0.4)',color:'#fbbf24',fontSize:'0.72rem'}}>⚠ Not found on page</span>
+                                : <span className="name-pill" style={{borderColor:'rgba(100,116,139,0.4)',color:'#64748b',fontSize:'0.72rem'}}>— No link / QR</span>}
                           </td>
                           <td><ConfidenceBar value={r.confidence} /></td>
                           <td>

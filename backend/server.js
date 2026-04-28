@@ -94,12 +94,61 @@ function normaliseLine(line) {
   return trimmed;
 }
 
+// ─── OCR TEXT REPAIR ─────────────────────────────────────────────────────────
+// Applied LINE-BY-LINE to prevent cross-line word corruptions.
+//   "Ayaz Al Am"  → "Ayaz Alam"    (3-token split)
+//   "A yaz Alam"  → "Ayaz Alam"    (orphaned capital)
+//   "P arul"      → "Parul"         (split within word)
+//   "Kri shna"    → "Krishna"       (lowercase tail)
+//   "AYAZ AL AM"  → "AYAZ ALAM"     (ALL-CAPS split)
+const OCR_STOPWORDS = new Set(['and','the','for','with','from','has','had','was','are','not','but','its','his','her','our','your','their','this','that','these','those']);
+
+function repairOCRLine(line) {
+  let r = line;
+
+  // Pass 1: orphaned single Capital + lowercase continuation
+  // "A yaz" → "Ayaz",  "P arul" → "Parul"
+  r = r.replace(/\b([A-Z]) ([a-z]{2,14})\b/g, (full, a, b) => {
+    const merged = a + b;
+    return merged.length <= 16 ? merged : full;
+  });
+
+  // Pass 2: Cap-word + short lowercase tail fragment (before another Cap or EOL)
+  // "Ma hika" → "Mahika",  "Kri shna" → "Krishna"
+  r = r.replace(/([A-Z][a-z]{1,10}) ([a-z]{2,5})(?= [A-Z]|$)/g, (full, a, b) => {
+    if (OCR_STOPWORDS.has(b.toLowerCase())) return full;  // never merge "and", "the" etc.
+    const merged = a + b;
+    return merged.length <= 16 ? merged : full;
+  });
+
+  // Pass 3: "Ayaz Al Am" — short middle Cap-word merges with the next word
+  // "Al Am" (middle ≤4 chars) → "Alam"
+  r = r.replace(/\b([A-Z][a-z]{2,18}) ([A-Z][a-z]{1,4}) ([A-Z][a-z]{2,18})\b/g,
+    (full, a, b, c) => {
+      const mergedBC = b + c.toLowerCase();   // "Al" + "am" = "Alam"
+      if (b.length <= 4 && mergedBC.length <= 16) return a + ' ' + mergedBC;
+      return full;
+    }
+  );
+
+  // Pass 4: ALL-CAPS version: "AYAZ AL AM" → "AYAZ ALAM"
+  r = r.replace(/\b([A-Z]{2,18}) ([A-Z]{1,4}) ([A-Z]{2,18})\b/g,
+    (full, a, b, c) => b.length <= 4 ? a + ' ' + b + c : full
+  );
+
+  return r;
+}
+
+function repairOCRText(text) {
+  // Process line-by-line to prevent cross-line merges corrupting unrelated text
+  return text.split('\n').map(repairOCRLine).join('\n');
+}
 // ─── OCR: EXTRACT TEXT FROM IMAGE BUFFER ─────────────────────────────────────
 async function extractTextFromImage(buffer) {
   const worker = await createWorker('eng');
   try {
     const { data } = await worker.recognize(buffer);
-    return data.text || '';
+    return repairOCRText(data.text || '');
   } finally {
     await worker.terminate();
   }
@@ -109,82 +158,194 @@ async function extractTextFromImage(buffer) {
 async function extractTextFromPDF(buffer) {
   try {
     const data = await pdfParse(buffer);
-    return data.text || '';
+    let raw = data.text || '';
+
+    // Some PDFs render each character/word on its own line (copy-protection)
+    // Detect this: if >40% of lines are ≤3 chars, rejoin short consecutive lines
+    const lines = raw.split('\n');
+    const shortLineCount = lines.filter(l => l.trim().length <= 3 && l.trim().length > 0).length;
+    const nonEmptyCount  = lines.filter(l => l.trim().length > 0).length;
+
+    if (nonEmptyCount > 5 && shortLineCount / nonEmptyCount > 0.40) {
+      // Rejoin: accumulate chars/words until we hit a blank line or a long line
+      const rejoined = [];
+      let chunk = '';
+      for (const line of lines) {
+        const t = line.trim();
+        if (t.length === 0) {
+          if (chunk.trim()) rejoined.push(chunk.trim());
+          chunk = '';
+        } else if (t.length <= 3) {
+          chunk += t + ' ';
+        } else {
+          if (chunk.trim()) rejoined.push(chunk.trim());
+          chunk = '';
+          rejoined.push(t);
+        }
+      }
+      if (chunk.trim()) rejoined.push(chunk.trim());
+      raw = rejoined.join('\n');
+    }
+
+    return repairOCRText(raw);
   } catch {
     return '';
   }
 }
 
 // ─── NAME DETECTION (NER-LITE) ───────────────────────────────────────────────
-// Handles: "John Doe", "kashish Adwani", "AYAZ ALAM" (all-caps), "Priya Sharma Nair"
+// 4-strategy pipeline, highest priority first:
+//  S1. Sentence pattern  — "completed by X", "certifies that X", "presented to X"
+//  S2. Context clue line — line immediately before/after "has successfully completed"
+//  S3. Standalone scan   — Title-case 2-4 word phrases with keyword filtering
+//  S4. Fallback          — ANY 2-word Title-case phrase not in keyword list
+
+const NAME_SENTENCE_PATTERNS = [
+  /(?:completed\s+by|certif(?:y|ies|ied)\s+that|presented\s+to|awarded\s+to|issued\s+to|congratulates?)\s+([A-Za-z][a-zA-Z\s.'-]{3,40}?)(?=\s*(?:has|for|on|in|with|,|\n|$))/gi,
+  /(?:this\s+is\s+to\s+certify\s+that)\s+([A-Za-z][a-zA-Z\s.'-]{3,40}?)(?=\s*(?:has|for|on|in|,|\n|$))/gi,
+  /^([A-Za-z][a-zA-Z\s.'-]{3,40}?)\s+has\s+successfully/gim,
+  /^([A-Za-z][a-zA-Z\s.'-]{3,40}?)\s+has\s+completed/gim,
+];
+
+// Lines that signal the name is on the next or previous line
+const NAME_CONTEXT_TRIGGERS = [
+  'has successfully completed',
+  'has completed',
+  'successfully completed',
+  'this certifies that',
+  'is hereby awarded',
+  'this is to certify',
+  'presented to',
+  'awarded to',
+  'issued to',
+];
+
+const ENGLISH_COMMON = new Set([
+  'text','web','data','search','deep','model','cloud','smart','open','free',
+  'fast','safe','real','next','core','full','good','best','top','new','old',
+  'big','high','low','key','hot','live','popular','official','premium',
+]);
+
+function isLikelyName(phrase) {
+  const words = phrase.trim().split(/\s+/).filter(Boolean);
+  if (words.length < 1 || words.length > 4) return false;
+  if (phrase.replace(/\s/g,'').length < 3) return false;
+  if (phrase === phrase.toUpperCase() && phrase.length > 3) return false; // all-caps block
+  // Reject if any word is a cert keyword
+  if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) return false;
+  // Reject if 2+ words are common English
+  if (words.filter(w => ENGLISH_COMMON.has(w.toLowerCase())).length >= 2) return false;
+  // At least one word should look like a proper name (Cap + lowercase, ≥2 chars)
+  const hasNameWord = words.some(w => /^[A-Za-z][a-z]{1,}$/.test(w) && w.length >= 2);
+  return hasNameWord;
+}
+
+function extractNameFromPhrase(raw) {
+  if (!raw) return null;
+  const phrase = raw.trim().replace(/[.,;:!]+$/,'');
+  if (isLikelyName(phrase)) return phrase;
+  // Try taking just first 2-3 words
+  const words = phrase.split(/\s+/).filter(Boolean);
+  for (let n = Math.min(words.length, 3); n >= 2; n--) {
+    const sub = words.slice(0, n).join(' ');
+    if (isLikelyName(sub)) return sub;
+  }
+  return null;
+}
+
 function detectNames(rawText) {
   const rawLines = rawText.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
+  const fullText = rawLines.join(' ');
+
+  // ── STRATEGY 1: Sentence pattern matching (highest confidence) ──────────────
+  for (const pattern of NAME_SENTENCE_PATTERNS) {
+    pattern.lastIndex = 0;
+    let m;
+    while ((m = pattern.exec(rawText)) !== null) {
+      const candidate = extractNameFromPhrase(m[1]);
+      if (candidate) return candidate;  // return immediately — highest confidence
+    }
+  }
+
+  // ── STRATEGY 2: Context clue — line before/after trigger phrase ─────────────
+  for (let i = 0; i < rawLines.length; i++) {
+    const lower = rawLines[i].toLowerCase();
+    const isTrigger = NAME_CONTEXT_TRIGGERS.some(t => lower.includes(t));
+    if (!isTrigger) continue;
+
+    // Check line ABOVE the trigger (most common: name then "has successfully completed")
+    if (i > 0) {
+      const above = normaliseLine(rawLines[i - 1]);
+      const candidate = extractNameFromPhrase(above);
+      if (candidate) return candidate;
+    }
+    // Check line BELOW (less common, but "congratulates [name]" style)
+    if (i < rawLines.length - 1) {
+      const below = normaliseLine(rawLines[i + 1]);
+      const candidate = extractNameFromPhrase(below);
+      if (candidate) return candidate;
+    }
+  }
+
+  // ── STRATEGY 3: Standalone scan — Title-case phrases with scoring ───────────
   const candidates = [];
 
-  // Scan both original and normalised versions of each line
   for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex++) {
-    const rawLine   = rawLines[lineIndex];
-    const normLine  = normaliseLine(rawLine);  // converts ALL-CAPS lines to Title Case
+    const rawLine  = rawLines[lineIndex];
+    const normLine = normaliseLine(rawLine);
     const linesToScan = rawLine === normLine ? [normLine] : [normLine, rawLine];
 
     for (const line of linesToScan) {
-      // Pattern 1: Standard "Firstname Lastname" (both capitalised)
-      const stdPattern = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
-      // Pattern 2: Mixed-case like "kashish Adwani" (first word lowercase)
-      const mixedPattern = /\b([a-z][a-z]{1,24}\s+[A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){0,2})\b/g;
+      // Standard: "Firstname Lastname"
+      const stdPat   = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
+      // Mixed-case: "kashish Adwani"
+      const mixedPat = /\b([a-z][a-z]{1,24}\s+[A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){0,2})\b/g;
 
-      for (const pattern of [stdPattern, mixedPattern]) {
+      for (const pattern of [stdPat, mixedPat]) {
         let match;
         while ((match = pattern.exec(line)) !== null) {
           const phrase = match[1].trim();
-          const words  = phrase.split(/\s+/).filter(Boolean);
+          if (!isLikelyName(phrase)) continue;
 
-          // Must be 2–4 words
-          if (words.length < 2 || words.length > 4) continue;
-
-          // Filter: skip if ANY word is a known keyword
-          if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
-
-          // Filter: skip all-uppercase remnants (shouldn't happen after normalise, but safety net)
-          if (phrase === phrase.toUpperCase()) continue;
-
-          // Filter: skip very short phrases
-          if (phrase.replace(/\s/g, '').length < 5) continue;
-
-          // Filter: skip phrases that look like course titles
-          // (more than 1 of the top-3 words are common English nouns/verbs)
-          const ENGLISH_COMMON = new Set(['text','web','data','search','deep','model',
-            'cloud','smart','open','free','fast','safe','real','next','core','full',
-            'good','best','top','new','old','big','high','low','key','hot','live']);
-          if (words.filter(w => ENGLISH_COMMON.has(w.toLowerCase())).length > 1) continue;
-
-          // Score calculation
-          const isStdCase    = /^[A-Z]/.test(phrase);
-          const wasAllCaps   = rawLine === rawLine.toUpperCase() && rawLine.replace(/\s/g,'').length > 3;
-          const positionBonus = Math.max(0, 1.5 - lineIndex * 0.08); // early lines score higher
-          const lengthScore  = words.length === 2 ? 1.0 : words.length === 3 ? 0.95 : 0.7;
-          const caseScore    = isStdCase ? 1.0 : 0.88;
-          const allCapsBonus = wasAllCaps ? 0.1 : 0; // trust normalised all-caps lines
-
-          const score = lengthScore * caseScore + positionBonus + allCapsBonus;
+          const words = phrase.split(/\s+/).filter(Boolean);
+          const isStdCase     = /^[A-Z]/.test(phrase);
+          const wasAllCaps    = rawLine === rawLine.toUpperCase() && rawLine.replace(/\s/g,'').length > 3;
+          // positionBonus: gently favours early lines but never goes negative
+          const positionBonus = Math.max(0.0, 1.0 - lineIndex * 0.04);
+          const lengthScore   = words.length === 2 ? 1.0 : words.length === 3 ? 0.9 : 0.65;
+          const caseScore     = isStdCase ? 1.0 : 0.85;
+          const allCapsBonus  = wasAllCaps ? 0.15 : 0;
+          const score         = lengthScore * caseScore + positionBonus + allCapsBonus;
           candidates.push({ name: phrase, score, lineIndex });
         }
       }
     }
   }
 
-  if (candidates.length === 0) return null;
+  if (candidates.length > 0) {
+    const seen = new Set();
+    const unique = candidates.filter(c => {
+      const k = c.name.toLowerCase();
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    unique.sort((a, b) => b.score - a.score);
+    return unique[0].name;
+  }
 
-  // Deduplicate by name string
-  const seen = new Set();
-  const unique = candidates.filter(c => {
-    if (seen.has(c.name.toLowerCase())) return false;
-    seen.add(c.name.toLowerCase());
-    return true;
-  });
+  // ── STRATEGY 4: Fallback — any 2-word title-case phrase ─────────────────────
+  const fallbackPat = /\b([A-Z][a-z]{2,20}\s+[A-Z][a-z]{2,20})\b/g;
+  let fm;
+  while ((fm = fallbackPat.exec(fullText)) !== null) {
+    const phrase = fm[1].trim();
+    const words = phrase.split(/\s+/);
+    if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
+    if (words.some(w => ENGLISH_COMMON.has(w.toLowerCase()))) continue;
+    return phrase;
+  }
 
-  unique.sort((a, b) => b.score - a.score);
-  return unique[0].name;
+  return null;
 }
 
 // ─── QR CODE DETECTION ───────────────────────────────────────────────────────
@@ -327,31 +488,67 @@ async function scrapeVerificationPage(url) {
     }
 
     // ── STRATEGY 3: Collect ALL names on the page, return as pool ─────────────
-    // Normalise ALL-CAPS segments too (e.g. "AYAZ ALAM" on some cert pages)
+
+    // 3a. Normalise ALL-CAPS segments ("AYAZ ALAM" → "Ayaz Alam")
     const normalisedBody = bodyText.replace(/\b([A-Z]{2,}(?:\s+[A-Z]{2,}){1,3})\b/g, (m) => {
-      // Only convert if it looks like 2-4 all-caps words (likely a name)
       const words = m.split(' ');
-      if (words.length >= 2 && words.length <= 4) return toTitleCase(m);
-      return m;
+      return (words.length >= 2 && words.length <= 4) ? toTitleCase(m) : m;
     });
 
+    // 3b. Score each candidate for "name-likeness"
+    // A high-quality name candidate: short (2-3 words), no keyword words,
+    // no common English adjectives, words have typical name length (4-12 chars)
+    const COMMON_ENGLISH = new Set([
+      'popular','free','best','top','new','get','our','all','for','and','the',
+      'with','from','your','this','that','more','also','have','been','will',
+      'than','then','when','into','about','other','which','these','their',
+      'there','after','first','some','what','well','even','most','such',
+      'much','many','only','both','just','over','back','make','take','come',
+      'cyber','digital','online','open','smart','fast','real','live','next',
+      'core','full','good','high','low','key','hot','premium','official',
+    ]);
+
+    function nameScore(candidate) {
+      const words = candidate.split(/\s+/).filter(Boolean);
+      if (words.length < 2 || words.length > 3) return 0;
+      // Any keyword word → reject
+      if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) return 0;
+      // Any common English word → reject
+      if (words.some(w => COMMON_ENGLISH.has(w.toLowerCase()))) return 0;
+      // Each word should look like a name token (4-15 chars, not all caps)
+      const wordScores = words.map(w => {
+        if (w.length < 2 || w.length > 20) return 0;
+        if (w === w.toUpperCase() && w.length > 2) return 0.3; // all-caps word (abbrev?)
+        if (/^[A-Z][a-z]{2,}$/.test(w)) return 1.0; // perfect Title Case word
+        if (/^[a-z]{3,}$/.test(w)) return 0.7;       // lowercase (like "kashish")
+        return 0.4;
+      });
+      const avgWordScore = wordScores.reduce((a,b)=>a+b,0) / wordScores.length;
+      // Prefer 2-word names slightly over 3-word
+      const lengthBonus = words.length === 2 ? 0.1 : 0;
+      return avgWordScore + lengthBonus;
+    }
+
     const allNamesOnPage = [];
-    // Scan both original and normalised body for maximum coverage
     for (const body of [bodyText, normalisedBody]) {
       const nameRegex = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
       let nm;
       while ((nm = nameRegex.exec(body)) !== null) {
         const candidate = nm[1].trim();
-        const words = candidate.split(/\s+/);
-        if (words.length < 2 || words.length > 4) continue;
-        if (candidate.length < 5) continue;
-        // Skip if any word is a cert keyword
-        if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
-        allNamesOnPage.push(candidate);
+        if (nameScore(candidate) > 0.5) {
+          allNamesOnPage.push(candidate);
+        }
+      }
+      // Also scan for lowercase-first names ("kashish Adwani")
+      const mixedRegex = /\b([a-z][a-z]{2,20}\s+[A-Z][a-z]{2,20}(?:\s+[A-Z][a-z]{0,20})?)\b/g;
+      let mx;
+      while ((mx = mixedRegex.exec(body)) !== null) {
+        const candidate = mx[1].trim();
+        if (nameScore(candidate) > 0.5) allNamesOnPage.push(candidate);
       }
     }
 
-    // Deduplicate (case-insensitive)
+    // Deduplicate (case-insensitive), keep highest score first
     const seenNames = new Set();
     const uniqueNames = allNamesOnPage.filter(n => {
       const key = n.toLowerCase();
@@ -436,53 +633,86 @@ function compareNames(raw1, raw2) {
   const firstNameSim   = stringSimilarity.compareTwoStrings(fn1, fn2);
   const firstNameExact = fn1.length >= 2 && fn1 === fn2;
 
-  // Signal 3: token-set overlap (handles "Ayaz Alam" vs "Ayaz Alam September")
+  // Signal 3: token-set overlap with FRAGMENT-AWARE matching
+  // "al am" fragments from OCR will still match "alam" via concat check
   const tokens1 = n1.split(/\s+/).filter(t => t.length >= 2);
   const tokens2 = n2.split(/\s+/).filter(t => t.length >= 2);
-  const matchedTokens = tokens1.filter(t1 =>
-    tokens2.some(t2 => stringSimilarity.compareTwoStrings(t1, t2) >= 0.85)
-  );
+
+  // Also build a "joined" version of each side for fragment matching
+  // e.g. n1 = "ayaz al am" → joined1 = "ayazalam", n2 = "ayaz alam" → joined2 = "ayazalam"
+  const joined1 = tokens1.join('');
+  const joined2 = tokens2.join('');
+  const joinedSim = stringSimilarity.compareTwoStrings(joined1, joined2);
+
+  function tokenMatch(t1, t2arr) {
+    // Direct fuzzy match
+    if (t2arr.some(t2 => stringSimilarity.compareTwoStrings(t1, t2) >= 0.82)) return true;
+    // Fragment match: t1 might be a broken piece of a t2 token ("al" is in "alam")
+    if (t1.length >= 2 && t2arr.some(t2 => t2.includes(t1) || t1.includes(t2))) return true;
+    return false;
+  }
+
+  const matchedTokens = tokens1.filter(t1 => tokenMatch(t1, tokens2));
   const tokenOverlap = tokens1.length > 0 ? matchedTokens.length / tokens1.length : 0;
 
-  // Signal 4: last name (if both have 2+ tokens)
+  // Signal 4: last-name comparison
   let lastNameSim = 0;
   if (tokens1.length >= 2 && tokens2.length >= 2) {
-    lastNameSim = stringSimilarity.compareTwoStrings(
-      tokens1[tokens1.length - 1],
-      tokens2[tokens2.length - 1]
+    const lastT1 = tokens1[tokens1.length - 1];
+    const lastT2 = tokens2[tokens2.length - 1];
+    // Also check joined-last: "al am" last="am", target "alam" → joined check
+    lastNameSim = Math.max(
+      stringSimilarity.compareTwoStrings(lastT1, lastT2),
+      stringSimilarity.compareTwoStrings(joined1.slice(-4), joined2.slice(-4))
     );
   }
 
-  // Composite: first-name 45%, full 20%, token-set 25%, last-name 10%
-  const composite = (firstNameSim * 0.45) + (fullSim * 0.20) + (tokenOverlap * 0.25) + (lastNameSim * 0.10);
+  // Signal 5: full joined-token similarity (catches "ayazalam" ≈ "ayazalam")
+  // This specifically rescues OCR-fragmented names
+  const joinedBonus = joinedSim >= 0.90 ? joinedSim : 0;
+
+  // Composite: first-name 40%, full 15%, token-overlap 20%, last-name 10%, joined 15%
+  const composite = (firstNameSim * 0.40) + (fullSim * 0.15) + (tokenOverlap * 0.20)
+                  + (lastNameSim * 0.10) + (joinedBonus * 0.15);
 
   // Rule: first name exact match → floor at 0.85 (→ REAL)
   if (firstNameExact && composite < 0.85) return 0.85;
 
-  // Rule: ALL cert tokens found in page name → floor at 0.90
+  // Rule: joined tokens highly similar (≥0.90) → floor at 0.88
+  // Catches "ayaz al am" vs "ayaz alam" even without first-name exact match
+  if (joinedSim >= 0.90 && composite < 0.88) return 0.88;
+
+  // Rule: ALL cert tokens found → floor at 0.90
   if (tokens1.length >= 2 && matchedTokens.length === tokens1.length && composite < 0.90) return 0.90;
 
   return Math.min(composite, 1.0);
 }
 
 // ─── COMPARE CERT NAME AGAINST POOL OF NAMES FROM VERIFICATION PAGE ──────────
-// Returns { bestMatch, cleanedMatch, similarity, signals }
+// Returns { bestMatch, cleanedMatch, similarity, topCandidates }
 function findBestMatch(certName, namesPool) {
   if (!certName || !namesPool || namesPool.length === 0) {
-    return { bestMatch: null, cleanedMatch: null, similarity: 0 };
+    return { bestMatch: null, cleanedMatch: null, similarity: 0, topCandidates: [] };
   }
 
-  const cleanedCert = cleanName(certName);
-  let best = { bestMatch: null, cleanedMatch: null, similarity: 0 };
+  // Repair and clean the cert name before matching
+  const repairedCert  = repairOCRText(certName);
+  const cleanedCert   = cleanName(repairedCert);
 
-  for (const candidate of namesPool) {
+  const scored = namesPool.map(candidate => {
     const cleanedCandidate = cleanName(candidate);
     const sim = compareNames(cleanedCert, cleanedCandidate);
-    if (sim > best.similarity) {
-      best = { bestMatch: candidate, cleanedMatch: cleanedCandidate, similarity: sim };
-    }
-  }
-  return best;
+    return { bestMatch: candidate, cleanedMatch: cleanedCandidate, similarity: sim };
+  });
+
+  scored.sort((a, b) => b.similarity - a.similarity);
+
+  const best = scored[0] || { bestMatch: null, cleanedMatch: null, similarity: 0 };
+  return {
+    ...best,
+    topCandidates: scored.slice(0, 5).map(s => ({ name: s.cleanedMatch, score: s.similarity })),
+    repairedCertName: cleanedCert,
+  };
 }
 
 // ─── MAIN VERIFICATION PIPELINE ──────────────────────────────────────────────
@@ -528,9 +758,29 @@ async function verifyCertificate(file) {
     }
 
     // ── STEP 2: NAME DETECTION ────────────────────────────────────────────────
-    result.detectedName = detectNames(rawText);
+    // Try 3 text variants: repaired, original, and line-rejoined version
+    const repairedText = repairOCRText(rawText);
+
+    // Variant 3: aggressively rejoin very short lines (handles char-by-char PDFs)
+    const rejoinedText = rawText.split('\n')
+      .reduce((acc, line) => {
+        const t = line.trim();
+        if (!t) return acc + '\n';
+        const last = acc.split('\n').pop() || '';
+        // If current line is very short AND last line is also short, merge them
+        if (t.length <= 4 && last.length <= 20) return acc + ' ' + t;
+        return acc + '\n' + t;
+      }, '');
+
+    result.detectedName =
+      detectNames(repairedText) ||
+      detectNames(rawText) ||
+      detectNames(rejoinedText);
+
     if (!result.detectedName) {
-      result.reasons.push('No human name detected in certificate text');
+      result.reasons.push('⚠️ No human name detected — certificate text may be image-only or heavily stylised');
+    } else {
+      result.detectedName = cleanName(result.detectedName);
     }
 
     // ── STEP 3: QR CODE DETECTION ─────────────────────────────────────────────
@@ -573,16 +823,17 @@ async function verifyCertificate(file) {
     // First-name exact match floors composite at 0.82 → always REAL.
     if (result.verificationUrl) {
       if (result.detectedName && result.allNamesOnPage && result.allNamesOnPage.length > 0) {
-        const { bestMatch, cleanedMatch, similarity } = findBestMatch(result.detectedName, result.allNamesOnPage);
+        const matchResult = findBestMatch(result.detectedName, result.allNamesOnPage);
+        const { bestMatch, cleanedMatch, similarity, repairedCertName, topCandidates } = matchResult;
 
-        // Display the cleaned version of the best match (no trailing dates/months)
-        const cleanedCert = cleanName(result.detectedName);
-        result.verifiedName = cleanedMatch || bestMatch;
-        result.detectedName = cleanedCert; // also clean the cert-side name for display
-        result.similarity = similarity;
+        // Always show clean names in the UI — no raw OCR fragments
+        result.verifiedName  = cleanedMatch || bestMatch;
+        result.detectedName  = repairedCertName || cleanName(result.detectedName);
+        result.similarity    = similarity;
+        result.topCandidates = topCandidates || [];
 
-        const fn1 = firstName(cleanedCert);
-        const fn2 = firstName(cleanedMatch || bestMatch || '');
+        const fn1 = firstName(result.detectedName);
+        const fn2 = firstName(result.verifiedName || '');
         const firstNameMatched = fn1 && fn2 && fn1 === fn2;
 
         if (similarity >= 0.80) {
@@ -591,36 +842,72 @@ async function verifyCertificate(file) {
           const matchDetail = firstNameMatched
             ? `first name "${fn1}" matched exactly`
             : `${(similarity * 100).toFixed(0)}% similarity`;
-          result.reasons.push(`✅ Name verified: "${cleanedCert}" → "${result.verifiedName}" (${matchDetail})`);
+          result.reasons.push(`✅ Name verified: "${result.detectedName}" → "${result.verifiedName}" (${matchDetail})`);
         } else if (similarity >= 0.50) {
           result.status = 'SUSPICIOUS';
           result.confidence = similarity * 0.7;
-          result.reasons.push(`⚠️ Partial match (${(similarity * 100).toFixed(0)}%): cert says "${cleanedCert}", page shows "${result.verifiedName}" — manual review recommended`);
+          result.reasons.push(`⚠️ Partial match (${(similarity * 100).toFixed(0)}%): cert says "${result.detectedName}", page shows "${result.verifiedName}" — manual review recommended`);
         } else {
+          // LOW MATCH: do NOT show the random near-match name — that's misleading
+          // Instead, show "Not found on verification page"
           result.status = 'FAKE';
           result.confidence = parseFloat((1 - similarity).toFixed(2));
-          result.reasons.push(`❌ Name not found on verification page — cert says "${cleanedCert}", closest match on page was "${result.verifiedName || 'none'}"`);
+          result.verifiedName = null;  // ← clear the random low-match name
+          result.reasons.push(`❌ Name "${result.detectedName}" was NOT found on the verification page (best match was only ${(similarity*100).toFixed(0)}% similar)`);
         }
       } else if (result.detectedName && (!result.allNamesOnPage || result.allNamesOnPage.length === 0)) {
         result.status = 'SUSPICIOUS';
         result.confidence = 0.35;
-        result.reasons.push('⚠️ Verification page loaded but no names could be extracted from it');
+        result.verifiedName = null;
+        result.reasons.push('⚠️ Verification link loaded but no names could be extracted from the page');
       } else if (!result.detectedName && result.allNamesOnPage && result.allNamesOnPage.length > 0) {
-        result.status = 'SUSPICIOUS';
-        result.confidence = 0.4;
-        result.reasons.push('⚠️ URL verified but could not extract recipient name from certificate text');
+        // Try to derive name hint from the filename (e.g. "kashish_adwani_cert.pdf" → "Kashish Adwani")
+        const fileNameHint = result.fileName
+          .replace(/\.[^.]+$/, '')       // remove extension
+          .replace(/[_\-\.]+/g, ' ')    // replace separators with spaces
+          .replace(/\d+/g, ' ')          // remove numbers
+          .replace(/\b(cert|certificate|coursera|udemy|ir|pdf|doc)\b/gi, '')
+          .replace(/\s+/g, ' ').trim();
+        const hintName = extractNameFromPhrase(fileNameHint) || null;
+
+        if (hintName) {
+          // Use filename-derived name as fallback detected name
+          result.detectedName = cleanName(hintName);
+          result.reasons.push(`ℹ️ Name inferred from filename: "${result.detectedName}"`);
+          const { bestMatch, cleanedMatch, similarity } = findBestMatch(result.detectedName, result.allNamesOnPage);
+          if (similarity >= 0.80) {
+            result.verifiedName = cleanedMatch || bestMatch;
+            result.status = 'REAL';
+            result.confidence = Math.min(similarity, 1.0);
+            result.similarity = similarity;
+            result.reasons.push(`✅ Filename-derived name "${result.detectedName}" matched page name "${result.verifiedName}" (${(similarity*100).toFixed(0)}%)`);
+          } else {
+            result.status = 'SUSPICIOUS';
+            result.confidence = 0.40;
+            result.verifiedName = null;
+            result.reasons.push('⚠️ Could not extract name from certificate text; filename hint did not match verification page');
+          }
+        } else {
+          result.status = 'SUSPICIOUS';
+          result.confidence = 0.4;
+          result.verifiedName = null;
+          result.reasons.push('⚠️ Could not extract recipient name from certificate text — certificate may be image-only');
+        }
       } else {
         result.status = 'SUSPICIOUS';
         result.confidence = 0.3;
+        result.verifiedName = null;
         result.reasons.push('⚠️ Verification page found but no names could be compared on either side');
       }
     } else {
-      // No URL / QR
+      // ── NO URL / QR FOUND ──────────────────────────────────────────────────
+      // Show clearly that the cert is unverifiable — not just "suspicious"
       result.status = 'SUSPICIOUS';
-      result.confidence = 0.25;
-      if (!result.reasons.some(r => r.includes('No QR'))) {
-        result.reasons.push('No verifiable link — cannot confirm authenticity');
-      }
+      result.confidence = 0.20;
+      result.verifiedName = null;
+      // Replace generic reason with specific "no link/QR" message
+      result.reasons = result.reasons.filter(r => !r.includes('No QR code or verification URL'));
+      result.reasons.push('⚠️ No QR code or verification link found on this certificate — authenticity cannot be confirmed');
     }
 
   } catch (err) {
