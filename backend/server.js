@@ -200,14 +200,17 @@ async function extractTextFromPDF(buffer) {
 //  S3. Standalone scan   — Title-case 2-4 word phrases with keyword filtering
 //  S4. Fallback          — ANY 2-word Title-case phrase not in keyword list
 
-const NAME_SENTENCE_PATTERNS = [
-  /(?:completed\s+by|certif(?:y|ies|ied)\s+that|presented\s+to|awarded\s+to|issued\s+to|congratulates?)\s+([A-Za-z][a-zA-Z\s.'-]{3,40}?)(?=\s*(?:has|for|on|in|with|,|\n|$))/gi,
-  /(?:this\s+is\s+to\s+certify\s+that)\s+([A-Za-z][a-zA-Z\s.'-]{3,40}?)(?=\s*(?:has|for|on|in|,|\n|$))/gi,
-  /^([A-Za-z][a-zA-Z\s.'-]{3,40}?)\s+has\s+successfully/gim,
-  /^([A-Za-z][a-zA-Z\s.'-]{3,40}?)\s+has\s+completed/gim,
-];
+// ── Words that look Title-Case but are NOT person names ─────────────────────
+const ENGLISH_COMMON = new Set([
+  'text','web','data','search','deep','model','cloud','smart','open','free',
+  'fast','safe','real','next','core','full','good','best','top','new','old',
+  'big','high','low','key','hot','live','popular','official','premium',
+  'offered','through','authorized','non','credit','online','offline',
+  'verify','verification','hereby','presented','awarded','issued',
+  'course','module','program','track','series','path','level','unit',
+]);
 
-// Lines that signal the name is on the next or previous line
+// ── Trigger phrases: the name is on a NEARBY line, not inside this line ──────
 const NAME_CONTEXT_TRIGGERS = [
   'has successfully completed',
   'has completed',
@@ -215,36 +218,39 @@ const NAME_CONTEXT_TRIGGERS = [
   'this certifies that',
   'is hereby awarded',
   'this is to certify',
-  'presented to',
-  'awarded to',
-  'issued to',
 ];
 
-const ENGLISH_COMMON = new Set([
-  'text','web','data','search','deep','model','cloud','smart','open','free',
-  'fast','safe','real','next','core','full','good','best','top','new','old',
-  'big','high','low','key','hot','live','popular','official','premium',
-]);
+// ── Role words that appear near instructor/signatory names ────────────────────
+// Lines that are ONLY role words → skip as name candidates
+const ROLE_ONLY_PATTERN = /^(professor|instructor|teacher|principal|senior|junior|lead|chief|director|dean|chair|founder|ceo|cto|cfo|head|manager|technologist|technician|engineer|developer|researcher|scientist|architect|consultant|advisor|mentor|coach|faculty|staff|team|department|division|center|centre|school|college|university|institute|academy)(\s+(of|and|for|at|in|the|\S+))*$/i;
 
 function isLikelyName(phrase) {
   const words = phrase.trim().split(/\s+/).filter(Boolean);
-  if (words.length < 1 || words.length > 4) return false;
-  if (phrase.replace(/\s/g,'').length < 3) return false;
-  if (phrase === phrase.toUpperCase() && phrase.length > 3) return false; // all-caps block
-  // Reject if any word is a cert keyword
+  if (words.length < 2 || words.length > 4) return false;  // must be 2-4 words for a full name
+  if (phrase.replace(/\s/g,'').length < 5) return false;
+  if (phrase === phrase.toUpperCase() && phrase.length > 3) return false;
+  // Reject if ANY word is a cert/course keyword
   if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) return false;
-  // Reject if 2+ words are common English
-  if (words.filter(w => ENGLISH_COMMON.has(w.toLowerCase())).length >= 2) return false;
-  // At least one word should look like a proper name (Cap + lowercase, ≥2 chars)
-  const hasNameWord = words.some(w => /^[A-Za-z][a-z]{1,}$/.test(w) && w.length >= 2);
-  return hasNameWord;
+  // Reject if ANY word is a common English filler (caught "offered through")
+  if (words.some(w => ENGLISH_COMMON.has(w.toLowerCase()))) return false;
+  // Reject pure role-title lines (instructor names handled separately)
+  if (ROLE_ONLY_PATTERN.test(phrase.split(' ').slice(0,2).join(' '))) return false;
+  // Must have at least one word that looks like a proper-noun name token
+  // (Capital + ≥2 lowercase letters, OR all-lowercase ≥3 letters for mixed-case names)
+  const hasProperToken = words.some(w =>
+    /^[A-Z][a-z]{1,}$/.test(w) && w.length >= 2 ||
+    /^[a-z]{3,}$/.test(w)
+  );
+  return hasProperToken;
 }
 
 function extractNameFromPhrase(raw) {
   if (!raw) return null;
   const phrase = raw.trim().replace(/[.,;:!]+$/,'');
+  // Reject obviously non-name lines immediately
+  if (/^(an |a |the |this |that |for |in |on |with |by |from |to |at )/i.test(phrase)) return null;
   if (isLikelyName(phrase)) return phrase;
-  // Try taking just first 2-3 words
+  // Try progressively shorter prefixes (2-3 words)
   const words = phrase.split(/\s+/).filter(Boolean);
   for (let n = Math.min(words.length, 3); n >= 2; n--) {
     const sub = words.slice(0, n).join(' ');
@@ -257,49 +263,67 @@ function detectNames(rawText) {
   const rawLines = rawText.split(/\n|\r/).map(l => l.trim()).filter(Boolean);
   const fullText = rawLines.join(' ');
 
-  // ── STRATEGY 1: Sentence pattern matching (highest confidence) ──────────────
-  for (const pattern of NAME_SENTENCE_PATTERNS) {
-    pattern.lastIndex = 0;
-    let m;
-    while ((m = pattern.exec(rawText)) !== null) {
-      const candidate = extractNameFromPhrase(m[1]);
-      if (candidate) return candidate;  // return immediately — highest confidence
+  // ── STRATEGY 1: "X has successfully completed" — exact line-start match ──────
+  // Only match when X is on the SAME LINE as "has successfully" (not cross-line)
+  // Use line-by-line scan to avoid multiline greediness bugs
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i];
+    // Pattern: line that ENDS with "has successfully completed" or "has completed"
+    const m1 = line.match(/^(.+?)\s+has\s+successfully\s+completed/i);
+    const m2 = line.match(/^(.+?)\s+has\s+completed/i);
+    const match = m1 || m2;
+    if (match) {
+      const candidate = extractNameFromPhrase(normaliseLine(match[1]));
+      if (candidate) return candidate;
+    }
+    // Pattern: "completed by X", "certifies that X", "presented to X" on same line
+    const m3 = line.match(/(?:completed\s+by|certif(?:y|ies|ied)\s+that|presented\s+to|awarded\s+to|issued\s+to)\s+([A-Za-z][a-zA-Z\s.'-]{2,35}?)(?:\s*(?:has|for|on|in|,|$))/i);
+    const m4 = line.match(/(?:this\s+is\s+to\s+certify\s+that)\s+([A-Za-z][a-zA-Z\s.'-]{2,35}?)(?:\s*(?:has|for|on|in|,|$))/i);
+    const m5 = line.match(/(?:congratulat(?:es?|ions?))\s+([A-Za-z][a-zA-Z\s.'-]{2,35}?)(?:\s*(?:on|for|in|,|$))/i);
+    for (const mx of [m3, m4, m5]) {
+      if (mx) {
+        const candidate = extractNameFromPhrase(normaliseLine(mx[1]));
+        if (candidate) return candidate;
+      }
     }
   }
 
-  // ── STRATEGY 2: Context clue — line before/after trigger phrase ─────────────
+  // ── STRATEGY 2: Context clue — ONLY the line ABOVE a trigger phrase ──────────
+  // "below" check removed — it was picking up instructor names that appear
+  // right after "has successfully completed" in Coursera/AWS format certs
   for (let i = 0; i < rawLines.length; i++) {
     const lower = rawLines[i].toLowerCase();
     const isTrigger = NAME_CONTEXT_TRIGGERS.some(t => lower.includes(t));
     if (!isTrigger) continue;
 
-    // Check line ABOVE the trigger (most common: name then "has successfully completed")
-    if (i > 0) {
-      const above = normaliseLine(rawLines[i - 1]);
-      const candidate = extractNameFromPhrase(above);
-      if (candidate) return candidate;
-    }
-    // Check line BELOW (less common, but "congratulates [name]" style)
-    if (i < rawLines.length - 1) {
-      const below = normaliseLine(rawLines[i + 1]);
-      const candidate = extractNameFromPhrase(below);
+    // Walk UPWARD from trigger, skip date lines and empty lines
+    for (let up = i - 1; up >= Math.max(0, i - 4); up--) {
+      const aboveLine = normaliseLine(rawLines[up]);
+      // Skip date-like lines
+      if (/^\d|^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i.test(aboveLine)) continue;
+      // Skip lines that are clearly course/platform descriptions
+      if (/online|course|credit|authorized|offered|through|platform/i.test(aboveLine)) continue;
+      const candidate = extractNameFromPhrase(aboveLine);
       if (candidate) return candidate;
     }
   }
 
-  // ── STRATEGY 3: Standalone scan — Title-case phrases with scoring ───────────
+  // ── STRATEGY 3: Scored standalone scan ──────────────────────────────────────
   const candidates = [];
 
   for (let lineIndex = 0; lineIndex < rawLines.length; lineIndex++) {
     const rawLine  = rawLines[lineIndex];
+    // Skip lines that look like dates, long descriptions, or role titles
+    if (/^\d/.test(rawLine)) continue;  // starts with digit = date
+    if (rawLine.length > 60) continue;   // long line = description, not a name
+    if (/online|course|credit|authorized|offered|through|platform|web services/i.test(rawLine)) continue;
+
     const normLine = normaliseLine(rawLine);
     const linesToScan = rawLine === normLine ? [normLine] : [normLine, rawLine];
 
     for (const line of linesToScan) {
-      // Standard: "Firstname Lastname"
-      const stdPat   = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){1,3})\b/g;
-      // Mixed-case: "kashish Adwani"
-      const mixedPat = /\b([a-z][a-z]{1,24}\s+[A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{0,25}){0,2})\b/g;
+      const stdPat   = /\b([A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{1,25}){1,3})\b/g;
+      const mixedPat = /\b([a-z][a-z]{1,24}\s+[A-Z][a-z]{1,25}(?:\s+[A-Z][a-z]{1,25}){0,2})\b/g;
 
       for (const pattern of [stdPat, mixedPat]) {
         let match;
@@ -307,15 +331,14 @@ function detectNames(rawText) {
           const phrase = match[1].trim();
           if (!isLikelyName(phrase)) continue;
 
-          const words = phrase.split(/\s+/).filter(Boolean);
-          const isStdCase     = /^[A-Z]/.test(phrase);
-          const wasAllCaps    = rawLine === rawLine.toUpperCase() && rawLine.replace(/\s/g,'').length > 3;
-          // positionBonus: gently favours early lines but never goes negative
-          const positionBonus = Math.max(0.0, 1.0 - lineIndex * 0.04);
-          const lengthScore   = words.length === 2 ? 1.0 : words.length === 3 ? 0.9 : 0.65;
-          const caseScore     = isStdCase ? 1.0 : 0.85;
-          const allCapsBonus  = wasAllCaps ? 0.15 : 0;
-          const score         = lengthScore * caseScore + positionBonus + allCapsBonus;
+          const words        = phrase.split(/\s+/).filter(Boolean);
+          const isStdCase    = /^[A-Z]/.test(phrase);
+          const wasAllCaps   = rawLine === rawLine.toUpperCase() && rawLine.replace(/\s/g,'').length > 3;
+          const posBonus     = Math.max(0.0, 1.2 - lineIndex * 0.05);
+          const lenScore     = words.length === 2 ? 1.0 : words.length === 3 ? 0.9 : 0.65;
+          const caseScore    = isStdCase ? 1.0 : 0.85;
+          const allCapsBonus = wasAllCaps ? 0.15 : 0;
+          const score        = lenScore * caseScore + posBonus + allCapsBonus;
           candidates.push({ name: phrase, score, lineIndex });
         }
       }
@@ -327,19 +350,18 @@ function detectNames(rawText) {
     const unique = candidates.filter(c => {
       const k = c.name.toLowerCase();
       if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
+      seen.add(k); return true;
     });
     unique.sort((a, b) => b.score - a.score);
     return unique[0].name;
   }
 
   // ── STRATEGY 4: Fallback — any 2-word title-case phrase ─────────────────────
-  const fallbackPat = /\b([A-Z][a-z]{2,20}\s+[A-Z][a-z]{2,20})\b/g;
+  const fbPat = /\b([A-Z][a-z]{2,20}\s+[A-Z][a-z]{2,20})\b/g;
   let fm;
-  while ((fm = fallbackPat.exec(fullText)) !== null) {
+  while ((fm = fbPat.exec(fullText)) !== null) {
     const phrase = fm[1].trim();
-    const words = phrase.split(/\s+/);
+    const words  = phrase.split(/\s+/);
     if (words.some(w => CERT_KEYWORDS.has(w.toLowerCase()))) continue;
     if (words.some(w => ENGLISH_COMMON.has(w.toLowerCase()))) continue;
     return phrase;
