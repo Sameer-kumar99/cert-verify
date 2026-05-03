@@ -124,14 +124,7 @@ export default function App() {
             <span className="logo-icon">🔐</span>
             <div>
               <h1>CertVerify</h1>
-              <p>Stateless AI Certificate Verification</p>
             </div>
-          </div>
-          <div className="header-badges">
-            <span className="badge">🧠 OCR + NLP</span>
-            <span className="badge">🔍 QR Detection</span>
-            <span className="badge">🕵️ Link Scraping</span>
-            <span className="badge privacy">🔒 Zero Storage</span>
           </div>
         </div>
       </header>
@@ -140,15 +133,6 @@ export default function App() {
         {results.length === 0 ? (
           /* ── UPLOAD VIEW ─────────────────────────────────── */
           <div className="upload-view">
-            <div className="pipeline-row">
-              {['Upload','OCR','NER','QR/URL','Scrape','Compare','Result'].map((s, i) => (
-                <React.Fragment key={s}>
-                  <div className="pipe-step"><span className="pipe-num">{i+1}</span>{s}</div>
-                  {i < 6 && <div className="pipe-arrow">→</div>}
-                </React.Fragment>
-              ))}
-            </div>
-
             {/* Dropzone */}
             <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''} ${files.length ? 'has-files' : ''}`}>
               <input {...getInputProps()} />
@@ -335,15 +319,12 @@ export default function App() {
               </table>
             </div>
 
-            <p className="privacy-note">
-              🔒 All data was processed in-memory only. No files were stored. Results exist only in this browser session.
-            </p>
+
           </div>
         )}
       </main>
 
       <footer className="footer">
-        <p>CertVerify — Stateless AI Certificate Verification Pipeline &nbsp;·&nbsp; OCR · NER · QR · Scraping · Fuzzy Matching</p>
       </footer>
     </div>
   );
