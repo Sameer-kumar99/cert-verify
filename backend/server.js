@@ -806,12 +806,13 @@ async function verifyCertificate(file) {
     let rawText = '';
     if (file.mimetype === 'application/pdf') {
       rawText = await extractTextFromPDF(file.buffer);
-      // If PDF text extraction failed or returned very little, it's image-based
       if (rawText.length < 50) {
         result.reasons.push('PDF appears to be image-based; OCR not applied to embedded images in this demo');
       }
-    } else {
+    } else if (file.mimetype.startsWith('image/')) {
       rawText = await extractTextFromImage(file.buffer);
+    } else {
+      throw new Error(`Unsupported file type: ${file.mimetype}. Expected PDF or image.`);
     }
 
     result.extractedText = rawText.slice(0, 1000); // Preview first 1000 chars
@@ -986,7 +987,7 @@ async function verifyCertificate(file) {
 }
 
 // ─── API ENDPOINTS ────────────────────────────────────────────────────────────
-app.post('/api/verify-certificates', upload.array('certificates', 10), async (req, res) => {
+const handleVerifyCertificates = async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ error: 'No files uploaded' });
   }
@@ -997,11 +998,14 @@ app.post('/api/verify-certificates', upload.array('certificates', 10), async (re
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+app.post('/api/verify-certificates', upload.array('certificates', 10), handleVerifyCertificates);
+app.post('/verify-certificates', upload.array('certificates', 10), handleVerifyCertificates);
 
 
 
-app.post('/api/verify-drive-link', async (req, res) => {
+const handleVerifyDriveLink = async (req, res) => {
   const { url } = req.body || {};
   if (!url?.trim().startsWith('http')) return res.status(400).json({ error: 'Missing or invalid URL' });
 
@@ -1030,7 +1034,10 @@ app.post('/api/verify-drive-link', async (req, res) => {
     const result = await verifyCertificate(file, { sourceLabel: `drive:${url.trim()}` });
     res.json({ success: true, result });
   } catch (err) { res.status(500).json({ error: err.message }); }
-});
+};
+
+app.post('/api/verify-drive-link', handleVerifyDriveLink);
+app.post('/verify-drive-link', handleVerifyDriveLink);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', message: 'CertVerify API running' }));
