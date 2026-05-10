@@ -23,7 +23,8 @@
     "canvas": "^2.11.2",
     "cheerio": "^1.0.0-rc.12",
     "node-fetch": "^2.7.0",
-    "jimp": "^0.22.10"
+    "jimp": "^0.22.10",
+    "jsqr": "^1.4.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
