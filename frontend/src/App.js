@@ -1,331 +1,213 @@
-import React, { useState, useCallback } from 'react';
-import { useDropzone } from 'react-dropzone';
+import React, { useState } from 'react';
+import { ShieldCheck, History, Upload, Link as LinkIcon, Loader2, Download, CheckCircle, AlertTriangle, XCircle, ExternalLink, Info } from 'lucide-react';
 import axios from 'axios';
-import Papa from 'papaparse';
 import './App.css';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000';
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
 
-// ─── STATUS CONFIG ────────────────────────────────────────────────────────────
-const STATUS_CONFIG = {
-  REAL:       { label: 'AUTHENTIC',   emoji: '✅', cls: 'real',       bg: '#0d2e1a', border: '#22c55e', text: '#4ade80' },
-  FAKE:       { label: 'FRAUDULENT',  emoji: '❌', cls: 'fake',       bg: '#2e0d0d', border: '#ef4444', text: '#f87171' },
-  SUSPICIOUS: { label: 'SUSPICIOUS',  emoji: '⚠️', cls: 'suspicious', bg: '#2e200d', border: '#f59e0b', text: '#fbbf24' },
-  ERROR:      { label: 'ERROR',       emoji: '🔴', cls: 'error',      bg: '#1e1e1e', border: '#6b7280', text: '#9ca3af' },
-};
-
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-function ConfidenceBar({ value }) {
-  const pct = Math.round((value || 0) * 100);
-  const color = pct >= 80 ? '#22c55e' : pct >= 50 ? '#f59e0b' : '#ef4444';
-  return (
-    <div className="conf-bar-wrap">
-      <div className="conf-bar-track">
-        <div className="conf-bar-fill" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="conf-label" style={{ color }}>{pct}%</span>
-    </div>
-  );
-}
-
-function FileIcon({ type }) {
-  return type === 'application/pdf'
-    ? <span className="file-icon pdf">PDF</span>
-    : <span className="file-icon img">IMG</span>;
-}
-
-// ─── MAIN APP ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [files, setFiles]       = useState([]);
-  const [results, setResults]   = useState([]);
-  const [loading, setLoading]   = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [error, setError]       = useState(null);
-  const [expanded, setExpanded] = useState(null);
+  const [driveUrl, setDriveUrl] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [session, setSession] = useState(null);
 
-  const onDrop = useCallback((accepted) => {
-    setFiles(prev => {
-      const existing = new Set(prev.map(f => f.name + f.size));
-      const fresh = accepted.filter(f => !existing.has(f.name + f.size));
-      return [...prev, ...fresh].slice(0, 10);
-    });
-    setError(null);
-  }, []);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { 'image/*': ['.jpg','.jpeg','.png','.webp'], 'application/pdf': ['.pdf'] },
-    maxSize: 20 * 1024 * 1024,
-    maxFiles: 10,
-  });
-
-  const removeFile = (name) => setFiles(f => f.filter(x => x.name !== name));
-
-  const handleVerify = async () => {
-    if (!files.length) return;
-    setLoading(true);
-    setResults([]);
-    setError(null);
-    setProgress(0);
-
-    const formData = new FormData();
-    files.forEach(f => formData.append('certificates', f));
-
+  const handleDriveSubmit = async (e) => {
+    e.preventDefault();
+    if (!driveUrl) return;
+    setLoading(true); setError(null);
     try {
-      const res = await axios.post(`${API_URL}/verify-certificates`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-        onUploadProgress: e => setProgress(Math.round((e.loaded / e.total) * 40)),
-      });
-      setProgress(100);
-      setResults(res.data.results || []);
+      const res = await axios.post(`${API_URL}/verify-drive-link`, { url: driveUrl });
+      setSession(res.data.session || { ...res.data, timestamp: new Date().toISOString() });
     } catch (err) {
-      setError(err.response?.data?.error || err.message || 'Verification failed');
+      setError(err.response?.data?.error || err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleReset = () => {
-    setFiles([]);
-    setResults([]);
-    setError(null);
-    setProgress(0);
-    setExpanded(null);
+  const handleFileUpload = async (event) => {
+    const files = event.target.files;
+    if (!files.length) return;
+    setLoading(true); setError(null);
+    
+    const formData = new FormData();
+    Array.from(files).forEach(f => formData.append('certificates', f));
+
+    try {
+      const res = await axios.post(`${API_URL}/verify-certificates`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      setSession(res.data.session || { ...res.data, timestamp: new Date().toISOString() });
+    } catch (err) {
+      setError(err.response?.data?.error || err.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const exportCSV = () => {
-    const rows = results.map(r => ({
-      'File Name':       r.fileName,
-      'Detected Name':   r.detectedName || '—',
-      'Verified Name':   r.verifiedName || '—',
-      'Status':          r.status,
-      'Confidence':      `${Math.round((r.confidence || 0) * 100)}%`,
-      'Verification URL':r.verificationUrl || '—',
-      'Reasons':         (r.reasons || []).join(' | '),
-    }));
-    const csv = Papa.unparse(rows);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url;
-    a.download = `cert-verify-${Date.now()}.csv`; a.click();
-    URL.revokeObjectURL(url);
+  const getStatusIcon = (status) => {
+    if (status === 'REAL') return <CheckCircle size={20} />;
+    if (status === 'SUSPICIOUS') return <AlertTriangle size={20} />;
+    if (status === 'FAKE') return <XCircle size={20} />;
+    return <Info size={20} />;
   };
-
-  const stats = results.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] || 0) + 1; return acc;
-  }, {});
 
   return (
-    <div className="app">
-      {/* ── HEADER ──────────────────────────────────────────── */}
+    <div className="layout-container">
       <header className="header">
-        <div className="header-inner">
-          <div className="logo">
-            <span className="logo-icon">🔐</span>
-            <div>
-              <h1>CertVerify</h1>
-            </div>
-          </div>
+        <div className="logo" onClick={() => setSession(null)} style={{ cursor: 'pointer' }}>
+          <ShieldCheck size={32} />
+          <span style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontWeight: 'bold', fontSize: '1.6rem' }}>CertVerify</span>
         </div>
       </header>
 
-      <main className="main">
-        {results.length === 0 ? (
-          /* ── UPLOAD VIEW ─────────────────────────────────── */
-          <div className="upload-view">
-            {/* Dropzone */}
-            <div {...getRootProps()} className={`dropzone ${isDragActive ? 'active' : ''} ${files.length ? 'has-files' : ''}`}>
-              <input {...getInputProps()} />
-              {isDragActive ? (
-                <div className="dz-hint">
-                  <div className="dz-icon drop">⬇️</div>
-                  <p>Drop certificates here…</p>
-                </div>
-              ) : files.length === 0 ? (
-                <div className="dz-hint">
-                  <div className="dz-icon">📄</div>
-                  <p className="dz-main">Drag &amp; drop certificates here</p>
-                  <p className="dz-sub">or click to browse — PDF, JPG, PNG, WEBP · max 10 files · 20 MB each</p>
-                </div>
-              ) : (
-                <div className="file-list">
-                  {files.map(f => (
-                    <div key={f.name + f.size} className="file-chip">
-                      <FileIcon type={f.type} />
-                      <span className="file-name">{f.name}</span>
-                      <span className="file-size">{(f.size/1024).toFixed(0)} KB</span>
-                      <button className="remove-btn" onClick={e => { e.stopPropagation(); removeFile(f.name); }}>×</button>
-                    </div>
-                  ))}
-                  <div className="dz-add-more">+ click or drop to add more</div>
-                </div>
-              )}
-            </div>
+      <main>
+        {!session ? (
+          <div className="home-container" style={{ animation: 'fadeIn 0.5s ease-out', paddingTop: '8vh' }}>
 
-            {error && <div className="error-box">⚠️ {error}</div>}
-
-            {files.length > 0 && (
-              <div className="action-row">
-                <button className="btn-secondary" onClick={handleReset}>Clear All</button>
-                <button className="btn-primary" onClick={handleVerify} disabled={loading}>
-                  {loading ? <><span className="spinner" />Verifying {files.length} file{files.length>1?'s':''}…</> : `🔍 Verify ${files.length} Certificate${files.length>1?'s':''}`}
-                </button>
+            {error && (
+              <div style={{ background: 'var(--status-fake-bg)', color: 'var(--status-fake)', padding: '16px', borderRadius: '8px', marginBottom: '24px', border: '1px solid var(--status-fake)', textAlign: 'center' }}>
+                {error}
               </div>
             )}
 
             {loading && (
-              <div className="progress-wrap">
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '40px 0', color: 'var(--accent-primary)' }}>
+                <Loader2 size={48} className="animate-spin" />
+                <p style={{ marginTop: '16px', fontWeight: '500' }}>Processing your request... This might take a moment.</p>
+              </div>
+            )}
+
+            {!loading && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+                
+
+
+                {/* Drive Link */}
+                <div className="glass-panel hover-lift">
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ background: 'rgba(139, 92, 246, 0.1)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: 'var(--accent-secondary)' }}>
+                      <LinkIcon size={32} />
+                    </div>
+                    <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Drive Link Verification</h3>
+                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px' }}>Paste a public Google Drive or direct file link.</p>
+                  </div>
+                  <form onSubmit={handleDriveSubmit} style={{ display: 'flex', gap: '8px' }}>
+                    <input 
+                      type="url" 
+                      placeholder="https://drive.google.com/..." 
+                      value={driveUrl}
+                      onChange={(e) => setDriveUrl(e.target.value)}
+                      required
+                      style={{ flex: 1, padding: '10px 16px', borderRadius: '8px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: 'white' }}
+                    />
+                    <button type="submit" className="btn-primary">Verify</button>
+                  </form>
                 </div>
-                <div className="progress-steps">
-                  {['Uploading','OCR Extraction','Name Detection','URL Verification','Comparing'].map((s, i) => (
-                    <span key={s} className={progress >= i*20+10 ? 'done' : ''}>{s}</span>
-                  ))}
+
+                {/* Batch Upload */}
+                <div className="glass-panel hover-lift" style={{ position: 'relative', cursor: 'pointer', textAlign: 'center' }}>
+                  <input 
+                    type="file" 
+                    accept=".pdf,image/*" 
+                    multiple
+                    onChange={handleFileUpload}
+                    style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                    title="Upload Certificates"
+                  />
+                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: 'var(--status-real)' }}>
+                    <Upload size={32} />
+                  </div>
+                  <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Batch Certificates</h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Upload up to 10 certificates (PDF, JPG, PNG) at once for verification.</p>
                 </div>
+
               </div>
             )}
           </div>
         ) : (
-          /* ── RESULTS VIEW ────────────────────────────────── */
-          <div className="results-view">
-            {/* Stats */}
-            <div className="stats-row">
-              <div className="stat-card total"><div className="stat-num">{results.length}</div><div className="stat-lbl">Total</div></div>
-              {Object.entries(STATUS_CONFIG).map(([k, v]) => stats[k] ? (
-                <div key={k} className={`stat-card ${v.cls}`} style={{ borderColor: v.border }}>
-                  <div className="stat-num" style={{ color: v.text }}>{stats[k]}</div>
-                  <div className="stat-lbl">{v.emoji} {v.label}</div>
-                </div>
-              ) : null)}
-            </div>
-
-            {/* Table */}
-            <div className="table-wrap">
-              <div className="table-header">
-                <h2>Verification Results</h2>
-                <div className="table-actions">
-                  <button className="btn-sm" onClick={exportCSV}>⬇ Export CSV</button>
-                  <button className="btn-sm danger" onClick={handleReset}>↩ New Batch</button>
-                </div>
+          <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
+              <div>
+                <h2 style={{ fontSize: '2rem', marginBottom: '8px' }}>Verification Report</h2>
+                <p style={{ color: 'var(--text-secondary)' }}>
+                  {session.sessionId && `Session ID: ${session.sessionId} • `} 
+                  {new Date(session.timestamp).toLocaleString()}
+                </p>
               </div>
-
-              <table className="results-table">
-                <thead>
-                  <tr>
-                    <th>File</th>
-                    <th>Detected Name</th>
-                    <th>Verified Name</th>
-                    <th>Confidence</th>
-                    <th>Status</th>
-                    <th>Details</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {results.map((r, i) => {
-                    const cfg = STATUS_CONFIG[r.status] || STATUS_CONFIG.ERROR;
-                    const isOpen = expanded === i;
-                    return (
-                      <React.Fragment key={i}>
-                        <tr className={`result-row ${cfg.cls}`}>
-                          <td>
-                            <div className="fname-cell">
-                              <FileIcon type={r.mimeType} />
-                              <span title={r.fileName}>{r.fileName.length > 28 ? r.fileName.slice(0,25)+'…' : r.fileName}</span>
-                              <span className="fsize">{r.fileSize}</span>
-                            </div>
-                          </td>
-                          <td><span className="name-pill">{r.detectedName || <em>not found</em>}</span></td>
-                          <td>
-                            {r.verifiedName
-                              ? <span className="name-pill verified" title={r.verifiedName}>
-                                  {(() => {
-                                    const parts = r.verifiedName.trim().split(' ');
-                                    return parts.length >= 2
-                                      ? <>{parts[0]}{' '}<span style={{opacity:0.6,fontSize:'0.71rem'}}>{parts.slice(1).join(' ')}</span></>
-                                      : r.verifiedName;
-                                  })()}
-                                </span>
-                              : r.verificationUrl
-                                ? <span className="name-pill" style={{borderColor:'rgba(245,158,11,0.4)',color:'#fbbf24',fontSize:'0.72rem'}}>⚠ Not found on page</span>
-                                : <span className="name-pill" style={{borderColor:'rgba(100,116,139,0.4)',color:'#64748b',fontSize:'0.72rem'}}>— No link / QR</span>}
-                          </td>
-                          <td><ConfidenceBar value={r.confidence} /></td>
-                          <td>
-                            <span className="status-badge" style={{ background: cfg.bg, border: `1px solid ${cfg.border}`, color: cfg.text }}>
-                              {cfg.emoji} {cfg.label}
-                            </span>
-                          </td>
-                          <td>
-                            <button className="expand-btn" onClick={() => setExpanded(isOpen ? null : i)}>
-                              {isOpen ? '▲ Hide' : '▼ Show'}
-                            </button>
-                          </td>
-                        </tr>
-                        {isOpen && (
-                          <tr className="detail-row">
-                            <td colSpan={6}>
-                              <div className="detail-panel">
-                                <div className="detail-grid">
-                                  <div className="detail-section">
-                                    <h4>🔍 Analysis</h4>
-                                    <ul>{(r.reasons||[]).map((reason,j) => <li key={j}>{reason}</li>)}</ul>
-                                  </div>
-                                  {r.verificationUrl && (
-                                    <div className="detail-section">
-                                      <h4>🔗 Verification URL</h4>
-                                      <a href={r.verificationUrl} target="_blank" rel="noopener noreferrer" className="url-link">
-                                        {r.verificationUrl.length > 60 ? r.verificationUrl.slice(0,57)+'…' : r.verificationUrl}
-                                      </a>
-                                      {r.pageTitle && <p className="page-title">Page: "{r.pageTitle}"</p>}
-                                      {r.scrapeMethod && <p className="page-title">Method: {r.scrapeMethod}</p>}
-                                      {r.allNamesOnPage && r.allNamesOnPage.length > 0 && (
-                                        <div style={{marginTop:'8px'}}>
-                                          <p style={{fontSize:'0.72rem',color:'var(--muted)',marginBottom:'4px'}}>Names found on page:</p>
-                                          <div style={{display:'flex',flexWrap:'wrap',gap:'4px'}}>
-                                            {r.allNamesOnPage.slice(0,8).map((n,i) => (
-                                              <span key={i} style={{
-                                                fontFamily:'var(--mono)',fontSize:'0.7rem',padding:'2px 7px',
-                                                borderRadius:'12px',background:'var(--bg)',border:'1px solid var(--border)',
-                                                color: n === r.verifiedName ? '#4ade80' : 'var(--muted)'
-                                              }}>{n}</span>
-                                            ))}
-                                          </div>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
-                                  {r.qrContent && (
-                                    <div className="detail-section">
-                                      <h4>📱 QR Content</h4>
-                                      <code className="qr-code">{r.qrContent}</code>
-                                    </div>
-                                  )}
-                                  {r.extractedText && (
-                                    <div className="detail-section full">
-                                      <h4>📄 OCR Text Preview</h4>
-                                      <pre className="ocr-preview">{r.extractedText.slice(0,500)}{r.extractedText.length>500?'\n…':''}</pre>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
+              <button onClick={() => setSession(null)} className="btn-secondary">
+                Verify Another
+              </button>
             </div>
 
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
+              <div className="glass-panel" style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>{session.count || (session.results ? session.results.length : 1)}</div>
+                <div style={{ color: 'var(--text-secondary)' }}>Total Processed</div>
+              </div>
+            </div>
 
+            <h3 style={{ fontSize: '1.5rem', marginBottom: '16px' }}>Detailed Results</h3>
+            <div style={{ display: 'grid', gap: '16px' }}>
+              {(session.results || [session.result]).filter(Boolean).map((result, i) => (
+                <div key={i} className="glass-panel" style={{ position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ 
+                    position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px',
+                    background: result.status === 'REAL' ? 'var(--status-real)' : result.status === 'SUSPICIOUS' ? 'var(--status-suspicious)' : result.status === 'FAKE' ? 'var(--status-fake)' : 'var(--status-error)'
+                  }} />
+                  
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+                    <div>
+                      <h4 style={{ fontSize: '1.25rem', marginBottom: '4px' }}>{result.fileName || result.originalname || `Certificate ${i+1}`}</h4>
+                      {result.platform && <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Platform: {result.platform}</span>}
+                    </div>
+                    <span className={`status-badge ${result.status?.toLowerCase() || 'error'}`}>
+                      {getStatusIcon(result.status)} 
+                      <span style={{ marginLeft: '4px' }}>
+                        {result.status === 'REAL' ? 'Authentic' : result.status === 'FAKE' ? 'Fraudulent' : 'Suspicious'} 
+                        {result.confidence !== undefined && ` (${(result.confidence * 100).toFixed(0)}%)`}
+                      </span>
+                    </span>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '8px' }}>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.875rem' }}>Detected Name</span>
+                      <strong>{result.detectedName || 'Unknown'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.875rem' }}>Verified Name (Source)</span>
+                      {result.verifiedName ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <strong>{result.verifiedName}</strong>
+                          {result.verificationUrl && (
+                            <a href={result.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>
+                              <ExternalLink size={14} />
+                            </a>
+                          )}
+                        </div>
+                      ) : 'Not found'}
+                    </div>
+                  </div>
+
+                  {result.reasons && result.reasons.length > 0 && (
+                    <div>
+                      <h5 style={{ fontSize: '1rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Analysis Log</h5>
+                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                        {result.reasons.map((reason, idx) => (
+                          <li key={idx} style={{ marginBottom: '4px', fontSize: '0.875rem', display: 'flex', gap: '8px' }}>
+                            <span style={{ color: 'var(--accent-secondary)' }}>•</span> {reason}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </main>
-
-      <footer className="footer">
-      </footer>
     </div>
   );
 }

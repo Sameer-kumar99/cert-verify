@@ -4,28 +4,89 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg:       #0b0f14;
-  --surface:  #111820;
-  --surface2: #161e28;
+  --bg:       #05080f;
+  --surface:  #0b121e;
+  --surface2: #131c2b;
   --border:   #1e2d3d;
+  --glass-bg: rgba(15, 23, 42, 0.45);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
   --text:     #e2e8f0;
-  --muted:    #64748b;
-  --accent:   #38bdf8;
-  --accent2:  #818cf8;
-  --green:    #22c55e;
-  --red:      #ef4444;
+  --text-primary: #ffffff;
+  --text-secondary: #94a3b8;
+  --muted:    #475569;
+  --accent:   #0ea5e9;
+  --accent-primary: #3b82f6;
+  --accent-secondary: #8b5cf6;
+  --accent2:  #6366f1;
+  --green:    #10b981;
+  --red:      #f43f5e;
   --yellow:   #f59e0b;
+  --status-real: #10b981;
+  --status-real-bg: rgba(16, 185, 129, 0.1);
+  --status-suspicious: #f59e0b;
+  --status-suspicious-bg: rgba(245, 158, 11, 0.1);
+  --status-fake: #f43f5e;
+  --status-fake-bg: rgba(244, 63, 94, 0.1);
+  --status-error: #64748b;
   --mono:     'Space Mono', monospace;
   --sans:     'DM Sans', sans-serif;
-  --radius:   10px;
+  --radius:   16px;
 }
 
 body {
-  background: var(--bg);
+  background-color: var(--bg);
+  background-image: 
+    radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
+    radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
+  background-attachment: fixed;
   color: var(--text);
   font-family: var(--sans);
   min-height: 100vh;
   line-height: 1.6;
+  overflow-x: hidden;
+}
+
+.glass-panel {
+  background: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow);
+  border-radius: var(--radius);
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: -100%;
+  width: 50%; height: 100%;
+  background: linear-gradient(to right, transparent, rgba(255,255,255,0.03), transparent);
+  transform: skewX(-20deg);
+  animation: shine 6s infinite;
+}
+
+@keyframes shine {
+  0% { left: -100%; }
+  20% { left: 200%; }
+  100% { left: 200%; }
+}
+
+.hover-lift {
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-8px);
+  box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(15px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* ── HEADER ─────────────────────────────────────────────────────────────── */
@@ -99,20 +160,30 @@ body {
 /* ── ACTION ROW ─────────────────────────────────────────────────────────── */
 .action-row { display: flex; gap: 12px; justify-content: flex-end; margin-top: 20px; }
 .btn-primary {
-  display: flex; align-items: center; gap: 8px;
-  background: var(--accent); color: var(--bg); border: none;
-  padding: 12px 28px; border-radius: var(--radius);
-  font-size: 0.95rem; font-weight: 700; cursor: pointer;
-  transition: opacity 0.2s; letter-spacing: 0.02em;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+  color: white; border: none;
+  padding: 12px 28px; border-radius: 8px;
+  font-size: 0.95rem; font-weight: 600; cursor: pointer;
+  transition: all 0.3s ease; letter-spacing: 0.02em;
+  box-shadow: 0 4px 15px -3px rgba(59, 130, 246, 0.4);
 }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
-.btn-primary:not(:disabled):hover { opacity: 0.85; }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+.btn-primary:not(:disabled):hover { 
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px -3px rgba(59, 130, 246, 0.6);
+}
 .btn-secondary {
-  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
-  padding: 12px 20px; border-radius: var(--radius);
-  font-size: 0.9rem; cursor: pointer; transition: border-color 0.2s;
+  background: rgba(255, 255, 255, 0.05); color: var(--text-primary); 
+  border: 1px solid var(--glass-border);
+  padding: 12px 24px; border-radius: 8px;
+  font-size: 0.95rem; font-weight: 500; cursor: pointer; 
+  transition: all 0.3s ease;
 }
-.btn-secondary:hover { border-color: var(--muted); }
+.btn-secondary:hover { 
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2); 
+}
 
 .spinner {
   width: 16px; height: 16px; border-radius: 50%;

@@ -13,6 +13,50 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── GOOGLE DRIVE UTILS ──────────────────────────────────────────────────────
+function isGoogleDriveUrl(url) {
+  return url && (url.includes('drive.google.com') || url.includes('docs.google.com'));
+}
+
+function extractDriveFileId(url) {
+  let match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) return match[1];
+  match = url.match(/id=([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) return match[1];
+  return null;
+}
+
+async function downloadFromDrive(url) {
+  const fileId = extractDriveFileId(url);
+  if (!fileId) throw new Error('Could not extract Google Drive File ID');
+  
+  const apiUrl = `https://drive.google.com/uc?export=download&id=${fileId}`;
+  
+  const response = await axios.get(apiUrl, {
+    responseType: 'arraybuffer',
+    timeout: 25000,
+    headers: { 'User-Agent': 'CertVerify/2.0' },
+    validateStatus: status => status < 500
+  });
+
+  let mimeType = (response.headers['content-type'] || '').split(';')[0].trim();
+  const buffer = Buffer.from(response.data);
+
+  if (buffer.length < 1000 && buffer.toString('utf8').includes('Google Drive - Virus scan warning')) {
+    throw new Error('Google Drive requires a manual virus scan confirmation for this large file. Please use a direct link or upload the file.');
+  }
+
+  if (mimeType.includes('octet-stream')) {
+    if (buffer.length > 4 && buffer.slice(0, 4).toString() === '%PDF') {
+      mimeType = 'application/pdf';
+    } else {
+      mimeType = 'image/jpeg'; // fallback guess for tesseract
+    }
+  }
+
+  return { buffer, mimeType, fileId };
+}
+
 // In-memory storage only — no disk writes
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -941,19 +985,51 @@ async function verifyCertificate(file) {
   return result;
 }
 
-// ─── API ENDPOINT ─────────────────────────────────────────────────────────────
-app.post('/verify-certificates', upload.array('certificates', 10), async (req, res) => {
+// ─── API ENDPOINTS ────────────────────────────────────────────────────────────
+app.post('/api/verify-certificates', upload.array('certificates', 10), async (req, res) => {
   if (!req.files || req.files.length === 0) {
     return res.status(400).json({ error: 'No files uploaded' });
   }
 
   try {
-    // Process all files in parallel
-    const results = await Promise.all(req.files.map(verifyCertificate));
+    const results = await Promise.all(req.files.map(f => verifyCertificate(f)));
     res.json({ success: true, count: results.length, results });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+
+
+app.post('/api/verify-drive-link', async (req, res) => {
+  const { url } = req.body || {};
+  if (!url?.trim().startsWith('http')) return res.status(400).json({ error: 'Missing or invalid URL' });
+
+  let fileBuffer, mimeType, fileName;
+  try {
+    if (isGoogleDriveUrl(url.trim())) {
+      const dl = await downloadFromDrive(url.trim());
+      fileBuffer = dl.buffer; mimeType = dl.mimeType; fileName = `drive-${dl.fileId}`;
+    } else {
+      const resp = await axios.get(url.trim(), {
+        responseType: 'arraybuffer', timeout: 20000,
+        headers: { 'User-Agent': 'CertVerify/2.0' }, validateStatus: s => s < 500,
+      });
+      mimeType   = (resp.headers['content-type'] || '').split(';')[0].trim();
+      fileBuffer = Buffer.from(resp.data);
+      if (mimeType.includes('octet-stream')) {
+        if (fileBuffer.length > 4 && fileBuffer.slice(0, 4).toString() === '%PDF') mimeType = 'application/pdf';
+        else mimeType = 'image/jpeg';
+      }
+      fileName   = url.trim().split('/').pop().split('?')[0] || 'certificate';
+    }
+  } catch (err) { return res.status(422).json({ error: `Failed to download: ${err.message}` }); }
+
+  try {
+    const file = { buffer: fileBuffer, mimetype: mimeType, originalname: fileName, size: fileBuffer.length };
+    const result = await verifyCertificate(file, { sourceLabel: `drive:${url.trim()}` });
+    res.json({ success: true, result });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // Health check
