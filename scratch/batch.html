@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Geist:wght@400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<style>
+    .glass-surface {
+      background: rgba(22, 27, 34, 0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .authentic-glow {
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+    .primary-glow {
+      box-shadow: 0 0 20px rgba(79, 70, 229, 0.15);
+    }
+    .analysis-thread::before {
+      content: '';
+      position: absolute;
+      left: 7px;
+      top: 12px;
+      bottom: 0;
+      width: 1px;
+      background: theme('colors.outline-variant');
+    }
+  </style>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "inverse-on-surface": "#302f39",
+            "on-surface-variant": "#c7c4d8",
+            "surface-container-high": "#2a2933",
+            "on-primary-container": "#dad7ff",
+            "on-error": "#690005",
+            "primary-fixed-dim": "#c3c0ff",
+            "secondary-container": "#3131c0",
+            "on-primary": "#1d00a5",
+            "secondary-fixed": "#e1e0ff",
+            "on-secondary-fixed": "#07006c",
+            "tertiary-fixed": "#ffdbcc",
+            "on-tertiary-container": "#ffd2be",
+            "surface": "#13121b",
+            "on-background": "#e4e1ee",
+            "surface-container": "#1f1f28",
+            "error-container": "#93000a",
+            "surface-bright": "#393842",
+            "tertiary-container": "#a44100",
+            "surface-tint": "#c3c0ff",
+            "primary": "#c3c0ff",
+            "on-tertiary-fixed": "#351000",
+            "on-secondary": "#1000a9",
+            "on-primary-fixed-variant": "#3323cc",
+            "secondary": "#c0c1ff",
+            "on-primary-fixed": "#0f0069",
+            "on-secondary-container": "#b0b2ff",
+            "error": "#ffb4ab",
+            "inverse-primary": "#4d44e3",
+            "outline-variant": "#464555",
+            "surface-container-highest": "#35343e",
+            "on-secondary-fixed-variant": "#2f2ebe",
+            "surface-container-low": "#1b1b24",
+            "on-error-container": "#ffdad6",
+            "background": "#13121b",
+            "on-surface": "#e4e1ee",
+            "outline": "#918fa1",
+            "tertiary-fixed-dim": "#ffb695",
+            "secondary-fixed-dim": "#c0c1ff",
+            "on-tertiary": "#571f00",
+            "surface-dim": "#13121b",
+            "tertiary": "#ffb695",
+            "surface-container-lowest": "#0e0d16",
+            "on-tertiary-fixed-variant": "#7b2f00",
+            "surface-variant": "#35343e",
+            "inverse-surface": "#e4e1ee",
+            "primary-container": "#4f46e5",
+            "primary-fixed": "#e2dfff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "stack-lg": "32px",
+            "section-gap": "48px",
+            "margin-x": "32px",
+            "container-max": "1200px",
+            "gutter": "24px",
+            "stack-md": "16px",
+            "stack-sm": "8px"
+          },
+          "fontFamily": {
+            "label-xs": ["Geist"],
+            "code-sm": ["monospace"],
+            "body-sm": ["Inter"],
+            "body-md": ["Inter"],
+            "title-sm": ["Geist"],
+            "display-lg": ["Geist"],
+            "headline-md": ["Geist"]
+          },
+          "fontSize": {
+            "label-xs": ["12px", {"lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600"}],
+            "code-sm": ["13px", {"lineHeight": "1.5", "fontWeight": "400"}],
+            "body-sm": ["14px", {"lineHeight": "1.5", "fontWeight": "400"}],
+            "body-md": ["16px", {"lineHeight": "1.6", "fontWeight": "400"}],
+            "title-sm": ["18px", {"lineHeight": "1.4", "fontWeight": "500"}],
+            "display-lg": ["32px", {"lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600"}],
+            "headline-md": ["24px", {"lineHeight": "1.3", "fontWeight": "600"}]
+          }
+        },
+      },
+    }
+  </script>
+</head>
+<body class="bg-background text-on-surface min-h-screen selection:bg-primary-container/30">
+<!-- Top Navigation Shell -->
+<header class="bg-surface/70 backdrop-blur-md border-b border-outline-variant shadow-sm sticky top-0 z-50">
+<div class="flex justify-between items-center w-full px-margin-x h-16 max-w-container-max mx-auto">
+<div class="text-title-sm font-display-lg font-bold text-primary dark:text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" data-weight="fill">verified_user</span>
+<span>CertVerify</span>
+</div>
+<div class="hidden md:flex items-center gap-8">
+<nav class="flex items-center gap-6">
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">VERIFY</a>
+<a class="text-primary font-bold border-b-2 border-primary hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">HISTORY</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">REPORTS</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">SETTINGS</a>
+</nav>
+<div class="flex items-center gap-4 border-l border-outline-variant pl-6">
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary">verified_user</span>
+<span class="material-symbols-outlined text-on-surface-variant cursor-pointer hover:text-primary">account_circle</span>
+</div>
+</div>
+</div>
+</header>
+<main class="max-w-container-max mx-auto px-margin-x py-10">
+<!-- Header Section -->
+<div class="flex flex-col md:flex-row justify-between items-start md:items-end gap-stack-md mb-stack-lg">
+<div>
+<h1 class="text-display-lg font-display-lg text-on-surface tracking-tight">Verification Report</h1>
+<p class="text-body-sm font-body-sm text-on-surface-variant mt-2">11/05/2026, 15:53:47</p>
+</div>
+<button class="bg-primary-container text-on-primary-container px-6 py-2.5 rounded-lg font-label-xs text-label-xs hover:opacity-90 transition-opacity flex items-center gap-2 primary-glow">
+<span class="material-symbols-outlined text-[18px]">refresh</span>
+        Verify Another
+      </button>
+</div>
+<!-- Summary Statistics Bento -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-section-gap">
+<div class="glass-surface p-8 rounded-xl flex flex-col items-center justify-center text-center col-span-1 md:col-span-1">
+<span class="text-[48px] font-display-lg text-primary leading-none">3</span>
+<span class="text-label-xs font-label-xs text-on-surface-variant uppercase tracking-widest mt-2">Total Processed</span>
+</div>
+<div class="glass-surface p-8 rounded-xl flex flex-col items-center justify-center text-center col-span-1 md:col-span-1">
+<span class="text-[48px] font-display-lg text-secondary leading-none">100%</span>
+<span class="text-label-xs font-label-xs text-on-surface-variant uppercase tracking-widest mt-2">Success Rate</span>
+</div>
+<div class="glass-surface p-6 rounded-xl col-span-1 md:col-span-2 relative overflow-hidden group">
+<div class="relative z-10">
+<span class="text-title-sm font-title-sm text-on-surface mb-2 block">Batch Integrity Secure</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant max-w-[280px]">All processed certificates have been cryptographically cross-referenced against official institution registries.</p>
+</div>
+<div class="absolute -right-10 -bottom-10 opacity-10 group-hover:opacity-20 transition-opacity">
+<span class="material-symbols-outlined text-[140px]" data-weight="fill">verified_user</span>
+</div>
+</div>
+</section>
+<!-- Detailed Results -->
+<section class="space-y-gutter">
+<div class="flex items-center gap-4 mb-stack-md">
+<h2 class="text-headline-md font-headline-md text-on-surface">Detailed Results</h2>
+<div class="h-[1px] flex-grow bg-outline-variant/30"></div>
+</div>
+<!-- Result Card 1 -->
+<div class="glass-surface rounded-xl overflow-hidden">
+<div class="p-stack-md md:p-8 flex flex-col gap-6">
+<div class="flex justify-between items-start">
+<h3 class="text-title-sm font-title-sm text-primary truncate max-w-[70%]">Gaurav Kalyankar-229302519-Information retrieval.pdf</h3>
+<div class="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-label-xs font-label-xs border border-primary/20 authentic-glow">
+<span class="material-symbols-outlined text-[14px]" data-weight="fill">verified</span>
+              Authentic (100%)
+            </div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Detected Name</span>
+<p class="text-body-md font-body-md text-on-surface font-semibold">Gaurav Kalyankar</p>
+</div>
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Verified Name (Source)</span>
+<div class="flex items-center gap-2">
+<p class="text-body-md font-body-md text-on-surface font-semibold">Gaurav Kalyankar</p>
+<span class="material-symbols-outlined text-[16px] text-primary cursor-pointer">open_in_new</span>
+</div>
+</div>
+</div>
+<div class="pt-6 border-t border-outline-variant/30">
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-4">Analysis Log</span>
+<ul class="space-y-4 relative analysis-thread">
+<li class="flex gap-3 items-start relative z-10">
+<span class="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center mt-1">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Verification URL extracted from text: <span class="text-primary underline cursor-pointer">https://coursera.org/verify/6US1FXNA8HSN</span></p>
+</li>
+<li class="flex gap-3 items-start relative z-10">
+<span class="material-symbols-outlined text-[16px] text-primary mt-1" data-weight="fill">check_circle</span>
+<p class="text-body-sm font-body-sm text-on-surface">Name verified: "Gaurav Kalyankar" → "Gaurav Kalyankar" (first name "gaurav" matched exactly)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<!-- Result Card 2 -->
+<div class="glass-surface rounded-xl overflow-hidden">
+<div class="p-stack-md md:p-8 flex flex-col gap-6">
+<div class="flex justify-between items-start">
+<h3 class="text-title-sm font-title-sm text-primary truncate max-w-[70%]">Satyam Chaudhary 229302463 IR coursera.pdf</h3>
+<div class="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-label-xs font-label-xs border border-primary/20 authentic-glow">
+<span class="material-symbols-outlined text-[14px]" data-weight="fill">verified</span>
+              Authentic (100%)
+            </div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Detected Name</span>
+<p class="text-body-md font-body-md text-on-surface font-semibold">Satyam Chaudhary</p>
+</div>
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Verified Name (Source)</span>
+<div class="flex items-center gap-2">
+<p class="text-body-md font-body-md text-on-surface font-semibold">Satyam Chaudhary</p>
+<span class="material-symbols-outlined text-[16px] text-primary cursor-pointer">open_in_new</span>
+</div>
+</div>
+</div>
+<div class="pt-6 border-t border-outline-variant/30">
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-4">Analysis Log</span>
+<ul class="space-y-4 relative analysis-thread">
+<li class="flex gap-3 items-start relative z-10">
+<span class="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center mt-1">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Verification URL extracted from text: <span class="text-primary underline cursor-pointer">https://coursera.org/verify/J3I2LQ2IBQ41</span></p>
+</li>
+<li class="flex gap-3 items-start relative z-10">
+<span class="material-symbols-outlined text-[16px] text-primary mt-1" data-weight="fill">check_circle</span>
+<p class="text-body-sm font-body-sm text-on-surface">Name verified: "Satyam Chaudhary" → "Satyam Chaudhary" (first name "satyam" matched exactly)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+<!-- Result Card 3 -->
+<div class="glass-surface rounded-xl overflow-hidden">
+<div class="p-stack-md md:p-8 flex flex-col gap-6">
+<div class="flex justify-between items-start">
+<h3 class="text-title-sm font-title-sm text-primary truncate max-w-[70%]">MahikaShukla_229302464_IRCoursera.pdf</h3>
+<div class="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-label-xs font-label-xs border border-primary/20 authentic-glow">
+<span class="material-symbols-outlined text-[14px]" data-weight="fill">verified</span>
+              Authentic (100%)
+            </div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Detected Name</span>
+<p class="text-body-md font-body-md text-on-surface font-semibold">Mahika Shukla</p>
+</div>
+<div>
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-1">Verified Name (Source)</span>
+<div class="flex items-center gap-2">
+<p class="text-body-md font-body-md text-on-surface font-semibold">Mahika Shukla</p>
+<span class="material-symbols-outlined text-[16px] text-primary cursor-pointer">open_in_new</span>
+</div>
+</div>
+</div>
+<div class="pt-6 border-t border-outline-variant/30">
+<span class="text-label-xs font-label-xs text-on-surface-variant block mb-4">Analysis Log</span>
+<ul class="space-y-4 relative analysis-thread">
+<li class="flex gap-3 items-start relative z-10">
+<span class="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center mt-1">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+</span>
+<p class="text-body-sm font-body-sm text-on-surface-variant">Verification URL extracted from text: <span class="text-primary underline cursor-pointer">https://coursera.org/verify/L5LNFW5YMA3E</span></p>
+</li>
+<li class="flex gap-3 items-start relative z-10">
+<span class="material-symbols-outlined text-[16px] text-primary mt-1" data-weight="fill">check_circle</span>
+<p class="text-body-sm font-body-sm text-on-surface">Name verified: "Mahika Shukla" → "Mahika Shukla" (first name "mahika" matched exactly)</p>
+</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
+<!-- Visual Anchor Section -->
+<section class="mt-section-gap">
+<div class="relative w-full h-[300px] rounded-2xl overflow-hidden glass-surface border-none">
+<img class="w-full h-full object-cover opacity-50 mix-blend-overlay" data-alt="A wide angle conceptual digital landscape representing global verification networks. Intricate glowing data threads and holographic certificate icons float over a dark, deep-space background. The color palette is dominated by deep blacks and midnight blues, with brilliant neon indigo and electric violet highlights reflecting a high-tech security atmosphere. The lighting is dramatic and focused, emphasizing digital nodes and connections across a vast network grid." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDZN9U4PaDpjUWqVsm6dET4bYaB_AUGabY1Yq3DXnvqT22_BVDD62zJs8gwVNp5SnsqmQGGmcPrzLyPvon0XnRoKPdVBPLrl7x6yt80Og5GmygZhCdvBaEfeWiVyi4q2hHjiwYmDHhwfFv9u-louOeq0sCII5_8CkNPY8CcvWD6RKRegngRXuRWt3ncPpkpep9Xy9nuNnwNtKk7e_BwTsGvoer2CtFksDRSlErFP0ouhnwpPe7QVZ75veYfWSDo0Gz9fU1z1AdVm0A-"/>
+<div class="absolute inset-0 bg-gradient-to-t from-background via-transparent to-transparent"></div>
+<div class="absolute bottom-8 left-8">
+<p class="text-headline-md font-headline-md text-white">Trust the Data.</p>
+<p class="text-body-sm font-body-sm text-on-surface-variant max-w-[400px]">Advanced AI-driven verification ensures that every credential in your system is genuine and verified at the source.</p>
+</div>
+</div>
+</section>
+</main>
+<!-- Bottom Navigation Shell (Mobile Only) -->
+<footer class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center py-3 px-4 bg-surface-container/80 backdrop-blur-xl border-t border-outline-variant shadow-lg rounded-t-xl">
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all px-3 py-1">
+<span class="material-symbols-outlined">verified</span>
+<span class="text-label-xs font-label-xs mt-1">Verify</span>
+</button>
+<button class="flex flex-col items-center justify-center text-primary bg-primary-container/20 rounded-xl px-3 py-1 transition-all">
+<span class="material-symbols-outlined" data-weight="fill">history</span>
+<span class="text-label-xs font-label-xs mt-1">History</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all px-3 py-1">
+<span class="material-symbols-outlined">description</span>
+<span class="text-label-xs font-label-xs mt-1">Reports</span>
+</button>
+<button class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all px-3 py-1">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-label-xs font-label-xs mt-1">Settings</span>
+</button>
+</footer>
+<!-- Padding for mobile nav -->
+<div class="h-20 md:hidden"></div>
+</body></html>

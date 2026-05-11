@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>CertVerify - Secure Digital Verification</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Geist:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "inverse-on-surface": "#302f39",
+                        "on-surface-variant": "#c7c4d8",
+                        "surface-container-high": "#2a2933",
+                        "on-primary-container": "#dad7ff",
+                        "on-error": "#690005",
+                        "primary-fixed-dim": "#c3c0ff",
+                        "secondary-container": "#3131c0",
+                        "on-primary": "#1d00a5",
+                        "secondary-fixed": "#e1e0ff",
+                        "on-secondary-fixed": "#07006c",
+                        "tertiary-fixed": "#ffdbcc",
+                        "on-tertiary-container": "#ffd2be",
+                        "surface": "#13121b",
+                        "on-background": "#e4e1ee",
+                        "surface-container": "#1f1f28",
+                        "error-container": "#93000a",
+                        "surface-bright": "#393842",
+                        "tertiary-container": "#a44100",
+                        "surface-tint": "#c3c0ff",
+                        "primary": "#c3c0ff",
+                        "on-tertiary-fixed": "#351000",
+                        "on-secondary": "#1000a9",
+                        "on-primary-fixed-variant": "#3323cc",
+                        "secondary": "#c0c1ff",
+                        "on-primary-fixed": "#0f0069",
+                        "on-secondary-container": "#b0b2ff",
+                        "error": "#ffb4ab",
+                        "inverse-primary": "#4d44e3",
+                        "outline-variant": "#464555",
+                        "surface-container-highest": "#35343e",
+                        "on-secondary-fixed-variant": "#2f2ebe",
+                        "surface-container-low": "#1b1b24",
+                        "on-error-container": "#ffdad6",
+                        "background": "#13121b",
+                        "on-surface": "#e4e1ee",
+                        "outline": "#918fa1",
+                        "tertiary-fixed-dim": "#ffb695",
+                        "secondary-fixed-dim": "#c0c1ff",
+                        "on-tertiary": "#571f00",
+                        "surface-dim": "#13121b",
+                        "tertiary": "#ffb695",
+                        "surface-container-lowest": "#0e0d16",
+                        "on-tertiary-fixed-variant": "#7b2f00",
+                        "surface-variant": "#35343e",
+                        "inverse-surface": "#e4e1ee",
+                        "primary-container": "#4f46e5",
+                        "primary-fixed": "#e2dfff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-lg": "32px",
+                        "section-gap": "48px",
+                        "margin-x": "32px",
+                        "container-max": "1200px",
+                        "gutter": "24px",
+                        "stack-md": "16px",
+                        "stack-sm": "8px"
+                    },
+                    "fontFamily": {
+                        "label-xs": ["Geist"],
+                        "code-sm": ["monospace"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "title-sm": ["Geist"],
+                        "display-lg": ["Geist"],
+                        "headline-md": ["Geist"]
+                    },
+                    "fontSize": {
+                        "label-xs": ["12px", { "lineHeight": "1", "letterSpacing": "0.05em", "fontWeight": "600" }],
+                        "code-sm": ["13px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-sm": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "1.6", "fontWeight": "400" }],
+                        "title-sm": ["18px", { "lineHeight": "1.4", "fontWeight": "500" }],
+                        "display-lg": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.02em", "fontWeight": "600" }],
+                        "headline-md": ["24px", { "lineHeight": "1.3", "fontWeight": "600" }]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #0B0E14;
+            color: #e4e1ee;
+            font-family: 'Inter', sans-serif;
+        }
+        .glass-card {
+            background: rgba(22, 27, 34, 0.7);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            transition: all 0.3s ease;
+        }
+        .glass-card:hover {
+            border-color: rgba(195, 192, 255, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+        .primary-gradient-btn {
+            background: linear-gradient(135deg, #4F46E5 0%, #6366F1 100%);
+            box-shadow: 0 0 20px rgba(79, 70, 229, 0.2);
+        }
+        .primary-gradient-btn:hover {
+            opacity: 0.9;
+            box-shadow: 0 0 25px rgba(79, 70, 229, 0.4);
+        }
+    </style>
+</head>
+<body class="bg-surface text-on-surface min-h-screen flex flex-col">
+<!-- TopNavBar -->
+<header class="bg-surface/70 backdrop-blur-md border-b border-outline-variant docked full-width top-0 shadow-sm z-50">
+<div class="flex justify-between items-center w-full px-margin-x h-16 max-w-container-max mx-auto">
+<div class="text-title-sm font-display-lg font-bold text-primary dark:text-primary flex items-center gap-2">
+<span class="material-symbols-outlined text-primary" style="font-variation-settings: 'FILL' 1;">verified_user</span>
+                CertVerify
+            </div>
+<nav class="hidden md:flex items-center gap-8">
+<a class="text-primary font-bold border-b-2 border-primary py-5 text-label-xs font-label-xs" href="#">Verify</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">History</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">Reports</a>
+<a class="text-on-surface-variant font-medium hover:text-primary transition-colors duration-200 text-label-xs font-label-xs" href="#">Settings</a>
+</nav>
+<div class="flex items-center gap-4">
+<button class="p-2 text-on-surface-variant hover:text-primary transition-colors">
+<span class="material-symbols-outlined">account_circle</span>
+</button>
+</div>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="flex-grow flex flex-col items-center justify-center px-4 py-stack-lg max-w-container-max mx-auto w-full">
+<!-- Hero Section -->
+<div class="text-center mb-section-gap max-w-2xl">
+<h1 class="font-display-lg text-display-lg text-on-surface mb-stack-sm">Instant Credential Verification</h1>
+<p class="text-body-md text-on-surface-variant">Securely validate digital certificates and documents using our encrypted blockchain-backed verification engine.</p>
+</div>
+<!-- Verification Options Grid -->
+<div class="grid grid-cols-1 md:grid-cols-2 gap-gutter w-full">
+<!-- Drive Link Verification Card -->
+<div class="glass-card rounded-xl p-stack-lg flex flex-col items-center text-center">
+<div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-stack-md">
+<span class="material-symbols-outlined text-primary text-4xl">link</span>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-stack-sm">Drive Link Verification</h2>
+<p class="text-body-sm text-on-surface-variant mb-stack-lg max-w-[300px]">Paste a public Google Drive or direct file link for automated background scanning.</p>
+<div class="w-full flex flex-col sm:flex-row gap-stack-sm mt-auto">
+<input class="flex-grow bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:text-outline" placeholder="https://drive.google.com/..." type="text"/>
+<button class="primary-gradient-btn text-white font-bold px-8 py-3 rounded-lg transition-all active:scale-95 text-label-xs font-label-xs">
+                        Verify
+                    </button>
+</div>
+</div>
+<!-- Batch Certificates Card -->
+<div class="glass-card rounded-xl p-stack-lg flex flex-col items-center text-center cursor-pointer group">
+<div class="w-16 h-16 rounded-full bg-secondary-container/20 flex items-center justify-center mb-stack-md group-hover:scale-110 transition-transform">
+<span class="material-symbols-outlined text-secondary text-4xl">upload</span>
+</div>
+<h2 class="font-headline-md text-headline-md text-on-surface mb-stack-sm">Batch Certificates</h2>
+<p class="text-body-sm text-on-surface-variant mb-stack-lg max-w-[300px]">Upload up to 10 certificates (PDF, JPG, PNG) at once for parallel verification.</p>
+<div class="w-full h-32 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center justify-center bg-surface-container-lowest/50 hover:bg-surface-container-low transition-colors mt-auto">
+<span class="material-symbols-outlined text-outline mb-2">cloud_upload</span>
+<span class="text-label-xs font-label-xs text-outline">Drag and drop files here</span>
+</div>
+</div>
+</div>
+<!-- Trust Features Bento (Subtle Contextual Grid) -->
+<div class="grid grid-cols-1 sm:grid-cols-3 gap-stack-md w-full mt-section-gap">
+<div class="flex items-center gap-3 p-4 bg-surface-container-low rounded-lg border border-outline-variant/50">
+<span class="material-symbols-outlined text-primary">security</span>
+<span class="text-label-xs font-label-xs text-on-surface">End-to-End Encrypted</span>
+</div>
+<div class="flex items-center gap-3 p-4 bg-surface-container-low rounded-lg border border-outline-variant/50">
+<span class="material-symbols-outlined text-primary">speed</span>
+<span class="text-label-xs font-label-xs text-on-surface">Sub-second Latency</span>
+</div>
+<div class="flex items-center gap-3 p-4 bg-surface-container-low rounded-lg border border-outline-variant/50">
+<span class="material-symbols-outlined text-primary">history_edu</span>
+<span class="text-label-xs font-label-xs text-on-surface">Blockchain Audited</span>
+</div>
+</div>
+</main>
+<!-- BottomNavBar (Mobile only) -->
+<footer class="md:hidden fixed bottom-0 left-0 w-full z-50 flex justify-around items-center py-3 px-4 bg-surface-container/80 backdrop-blur-xl border-t border-outline-variant rounded-t-xl shadow-lg">
+<a class="flex flex-col items-center justify-center text-primary bg-primary-container/20 rounded-xl px-3 py-1 scale-95 duration-150" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">verified</span>
+<span class="text-label-xs font-label-xs">Verify</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="text-label-xs font-label-xs">History</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
+<span class="material-symbols-outlined">description</span>
+<span class="text-label-xs font-label-xs">Reports</span>
+</a>
+<a class="flex flex-col items-center justify-center text-on-surface-variant hover:bg-surface-container-highest transition-all" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-label-xs font-label-xs">Settings</span>
+</a>
+</footer>
+<!-- Image for Contextual Background Feel (Invisible but prompt-based for generator) -->
+<div class="fixed inset-0 -z-10 opacity-20 pointer-events-none overflow-hidden">
+<img class="w-full h-full object-cover grayscale" data-alt="A sophisticated dark-themed background representing a secure digital network with abstract interconnected nodes and faint glowing data streams. The aesthetic is ultra-modern and technical, utilizing a deep obsidian base with subtle indigo and violet light flares. The mood is high-security, professional, and suggests blockchain technology or advanced cryptography. Soft bokeh effects create a sense of depth without distracting from the primary UI elements." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBUKGPqUSwdwik4U9Pj-cijYds-19N4NQu0yYufh-5GeaOxtP9vGXayTWA2E-aPikROd0xy2jIecXgJG5VCtO-9ak69G1YEEXNhPOnBozye_fPMcGQcoYUp7F8gPutKWk3NlnlXDlPjl9EPATNEXGqZq4iuB_AvtBlX4UgPk_1Yoahdp9u8y2uKxQAP5IUsFXEB8W3O7-LEtTI3Yyol5nL7oL2tT-D4BJO88QJTtTbIjU7mzHKdpIeRWcnA7re0pGSPV4fceQrg27J3"/>
+</div>
+</body></html>

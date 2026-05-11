@@ -1,213 +1,281 @@
-import React, { useState } from 'react';
-import { ShieldCheck, History, Upload, Link as LinkIcon, Loader2, Download, CheckCircle, AlertTriangle, XCircle, ExternalLink, Info } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
 import axios from 'axios';
-import './App.css';
+import { useDropzone } from 'react-dropzone';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:4000/api';
+const API_BASE = 'http://localhost:4000';
 
-export default function App() {
-  const [driveUrl, setDriveUrl] = useState('');
+function App() {
+  const [view, setView] = useState('home'); // 'home', 'report'
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [session, setSession] = useState(null);
+  const [driveUrl, setDriveUrl] = useState('');
+  const [reportData, setReportData] = useState(null);
+  const [error, setError] = useState('');
 
-  const handleDriveSubmit = async (e) => {
-    e.preventDefault();
+  const handleVerifyDriveLink = async () => {
     if (!driveUrl) return;
-    setLoading(true); setError(null);
+    setLoading(true);
+    setError('');
     try {
-      const res = await axios.post(`${API_URL}/verify-drive-link`, { url: driveUrl });
-      setSession(res.data.session || { ...res.data, timestamp: new Date().toISOString() });
+      const res = await axios.post(`${API_BASE}/api/verify-drive-link`, { url: driveUrl });
+      setReportData({
+        isBatch: false,
+        results: [res.data.result],
+        timestamp: new Date().toLocaleString()
+      });
+      setView('report');
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.response?.data?.error || err.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleFileUpload = async (event) => {
-    const files = event.target.files;
-    if (!files.length) return;
-    setLoading(true); setError(null);
+  const onDrop = useCallback(async (acceptedFiles) => {
+    if (acceptedFiles.length === 0) return;
+    setLoading(true);
+    setError('');
     
     const formData = new FormData();
-    Array.from(files).forEach(f => formData.append('certificates', f));
+    acceptedFiles.forEach(file => {
+      formData.append('certificates', file);
+    });
 
     try {
-      const res = await axios.post(`${API_URL}/verify-certificates`, formData, {
+      const res = await axios.post(`${API_BASE}/api/verify-certificates`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
-      setSession(res.data.session || { ...res.data, timestamp: new Date().toISOString() });
+      setReportData({
+        isBatch: acceptedFiles.length > 1,
+        results: res.data.results,
+        timestamp: new Date().toLocaleString()
+      });
+      setView('report');
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(err.response?.data?.error || err.message || 'Verification failed');
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: {
+      'image/jpeg': [],
+      'image/png': [],
+      'application/pdf': []
+    },
+    maxFiles: 10
+  });
+
+  const renderNav = () => (
+    <header className="bg-surface/70 backdrop-blur-md border-b border-outline-variant shadow-sm sticky top-0 z-50">
+      <div className="flex justify-between items-center w-full px-margin-x h-16 max-w-container-max mx-auto">
+        <div className="text-title-sm font-display-lg font-bold text-primary flex items-center gap-2 cursor-pointer" onClick={() => setView('home')}>
+          <span className="material-symbols-outlined text-primary" style={{fontVariationSettings: "'FILL' 1"}}>verified_user</span>
+          CertVerify
+        </div>
+
+      </div>
+    </header>
+  );
+
+  const renderHome = () => (
+    <main className="flex-grow flex flex-col items-center justify-center px-4 py-stack-lg max-w-container-max mx-auto w-full">
+
+
+      {error && <div className="mb-4 text-error bg-error-container/20 p-4 rounded-lg w-full max-w-2xl text-center border border-error/50">{error}</div>}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-gutter w-full">
+        {/* Drive Link Verification Card */}
+        <div className="glass-card rounded-xl p-stack-lg flex flex-col items-center text-center">
+          <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-stack-md">
+            <span className="material-symbols-outlined text-primary text-4xl">link</span>
+          </div>
+          <h2 className="font-headline-md text-headline-md text-on-surface mb-stack-sm">Drive Link Verification</h2>
+          <p className="text-body-sm text-on-surface-variant mb-stack-lg max-w-[300px]">Paste a public Google Drive or direct file link for automated background scanning.</p>
+          <div className="w-full flex flex-col sm:flex-row gap-stack-sm mt-auto">
+            <input 
+              value={driveUrl}
+              onChange={(e) => setDriveUrl(e.target.value)}
+              disabled={loading}
+              className="flex-grow bg-surface-container-low border border-outline-variant rounded-lg px-4 py-3 text-on-surface focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all placeholder:text-outline" 
+              placeholder="https://drive.google.com/..." 
+              type="text" 
+            />
+            <button 
+              onClick={handleVerifyDriveLink}
+              disabled={loading}
+              className="primary-gradient-btn text-white font-bold px-8 py-3 rounded-lg transition-all active:scale-95 text-label-xs flex items-center justify-center"
+            >
+              {loading ? <span className="material-symbols-outlined animate-spin">refresh</span> : 'Verify'}
+            </button>
+          </div>
+        </div>
+
+        {/* Batch Certificates Card */}
+        <div {...getRootProps()} className={`glass-card rounded-xl p-stack-lg flex flex-col items-center text-center cursor-pointer group ${isDragActive ? 'border-primary bg-primary/5' : ''}`}>
+          <input {...getInputProps()} />
+          <div className="w-16 h-16 rounded-full bg-secondary-container/20 flex items-center justify-center mb-stack-md group-hover:scale-110 transition-transform">
+            <span className="material-symbols-outlined text-secondary text-4xl">upload</span>
+          </div>
+          <h2 className="font-headline-md text-headline-md text-on-surface mb-stack-sm">Batch Certificates</h2>
+          <p className="text-body-sm text-on-surface-variant mb-stack-lg max-w-[300px]">Upload up to 10 certificates (PDF, JPG, PNG) at once for parallel verification.</p>
+          <div className="w-full h-32 border-2 border-dashed border-outline-variant rounded-xl flex flex-col items-center justify-center bg-surface-container-lowest/50 hover:bg-surface-container-low transition-colors mt-auto">
+            {loading ? (
+               <span className="material-symbols-outlined text-primary animate-spin text-4xl">refresh</span>
+            ) : (
+              <>
+                <span className="material-symbols-outlined text-outline mb-2">cloud_upload</span>
+                <span className="text-label-xs text-outline">{isDragActive ? "Drop files here" : "Drag and drop files here"}</span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+
+    </main>
+  );
+
+  const renderResultCard = (res, index) => {
+    const isAuthentic = res.status === 'REAL';
+    const isSuspicious = res.status === 'SUSPICIOUS';
+    
+    return (
+      <div key={index} className="glass-surface rounded-xl overflow-hidden mb-6">
+        <div className="p-stack-md md:p-8 flex flex-col gap-6">
+          <div className="flex justify-between items-start">
+            <h3 className="text-title-sm font-title-sm text-primary truncate max-w-[70%]">{res.fileName}</h3>
+            {isAuthentic ? (
+              <div className="flex items-center gap-2 bg-primary/10 text-primary px-3 py-1 rounded-full text-label-xs border border-primary/20 authentic-glow">
+                <span className="material-symbols-outlined text-[14px]" style={{fontVariationSettings: "'FILL' 1"}}>verified</span>
+                Authentic ({(res.confidence * 100).toFixed(0)}%)
+              </div>
+            ) : isSuspicious ? (
+              <div className="flex items-center gap-2 bg-error-container/20 text-tertiary px-3 py-1 rounded-full text-label-xs border border-tertiary/20">
+                <span className="material-symbols-outlined text-[14px]">warning</span>
+                Suspicious ({(res.confidence * 100).toFixed(0)}%)
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 bg-error-container/50 text-error px-3 py-1 rounded-full text-label-xs border border-error/50">
+                <span className="material-symbols-outlined text-[14px]" style={{fontVariationSettings: "'FILL' 1"}}>cancel</span>
+                Failed ({(res.confidence * 100).toFixed(0)}%)
+              </div>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-stack-lg">
+            <div>
+              <span className="text-label-xs text-on-surface-variant block mb-1">Detected Name</span>
+              <p className="text-body-md font-semibold text-on-surface">{res.detectedName || 'Unknown'}</p>
+            </div>
+            <div>
+              <span className="text-label-xs text-on-surface-variant block mb-1">Verified Name (Source)</span>
+              <div className="flex items-center gap-2">
+                <p className="text-body-md font-semibold text-on-surface">{res.verifiedName || 'N/A'}</p>
+                {res.verificationUrl && (
+                  <a href={res.verificationUrl} target="_blank" rel="noreferrer" className="flex items-center">
+                    <span className="material-symbols-outlined text-[16px] text-primary cursor-pointer">open_in_new</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="pt-6 border-t border-outline-variant/30">
+            <span className="text-label-xs text-on-surface-variant block mb-4">Analysis Log</span>
+            <ul className="space-y-4 relative analysis-thread">
+              {res.reasons && res.reasons.map((reason, rIdx) => (
+                <li key={rIdx} className="flex gap-3 items-start relative z-10">
+                  {reason.includes('✅') ? (
+                    <span className="material-symbols-outlined text-[16px] text-[#B4FFAB] mt-1" style={{fontVariationSettings: "'FILL' 1"}}>check_circle</span>
+                  ) : reason.includes('⚠️') ? (
+                    <span className="material-symbols-outlined text-[16px] text-tertiary mt-1" style={{fontVariationSettings: "'FILL' 1"}}>warning</span>
+                  ) : reason.includes('❌') ? (
+                    <span className="material-symbols-outlined text-[16px] text-error mt-1" style={{fontVariationSettings: "'FILL' 1"}}>cancel</span>
+                  ) : (
+                    <span className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center mt-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                    </span>
+                  )}
+                  <p className="text-body-sm text-on-surface-variant">{reason.replace(/[✅⚠️❌ℹ️]\s*/g, '')}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
   };
 
-  const getStatusIcon = (status) => {
-    if (status === 'REAL') return <CheckCircle size={20} />;
-    if (status === 'SUSPICIOUS') return <AlertTriangle size={20} />;
-    if (status === 'FAKE') return <XCircle size={20} />;
-    return <Info size={20} />;
+  const renderReport = () => {
+    if (!reportData) return null;
+    
+    const successCount = reportData.results.filter(r => r.status === 'REAL').length;
+    const successRate = reportData.results.length ? ((successCount / reportData.results.length) * 100).toFixed(0) : 0;
+
+    return (
+      <main className="max-w-container-max mx-auto px-margin-x py-10">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-stack-md mb-stack-lg">
+          <div>
+            <h1 className="text-display-lg font-display-lg text-on-surface tracking-tight">Verification Report</h1>
+            <p className="text-body-sm text-on-surface-variant mt-2">{reportData.timestamp}</p>
+          </div>
+          <button 
+            onClick={() => setView('home')}
+            className="bg-primary-container text-on-primary-container px-6 py-2.5 rounded-lg font-label-xs hover:opacity-90 transition-opacity flex items-center gap-2 primary-glow"
+          >
+            <span className="material-symbols-outlined text-[18px]">refresh</span>
+            Verify Another
+          </button>
+        </div>
+
+        {reportData.isBatch ? (
+          <section className="grid grid-cols-1 md:grid-cols-4 gap-gutter mb-section-gap">
+            <div className="glass-surface p-8 rounded-xl flex flex-col items-center justify-center text-center col-span-1 md:col-span-1">
+              <span className="text-[48px] font-display-lg text-primary leading-none">{reportData.results.length}</span>
+              <span className="text-label-xs text-on-surface-variant uppercase tracking-widest mt-2">Total Processed</span>
+            </div>
+            <div className="glass-surface p-8 rounded-xl flex flex-col items-center justify-center text-center col-span-1 md:col-span-1">
+              <span className={`text-[48px] font-display-lg leading-none ${successRate == 100 ? 'text-secondary' : 'text-tertiary'}`}>{successRate}%</span>
+              <span className="text-label-xs text-on-surface-variant uppercase tracking-widest mt-2">Success Rate</span>
+            </div>
+            <div className="glass-surface p-6 rounded-xl col-span-1 md:col-span-2 relative overflow-hidden group">
+              <div className="relative z-10">
+                <span className="text-title-sm text-on-surface mb-2 block">Batch Integrity Secure</span>
+                <p className="text-body-sm text-on-surface-variant max-w-[280px]">All processed certificates have been cryptographically cross-referenced against official institution registries.</p>
+              </div>
+              <div className="absolute -right-10 -bottom-10 opacity-10 group-hover:opacity-20 transition-opacity">
+                <span className="material-symbols-outlined text-[140px]" style={{fontVariationSettings: "'FILL' 1"}}>verified_user</span>
+              </div>
+            </div>
+          </section>
+        ) : (
+          <section className="mb-stack-lg">
+            <div className="glass-card rounded-xl p-stack-lg text-center flex flex-col items-center justify-center min-h-[140px] shadow-sm">
+              <span className="font-display-lg text-[48px] text-primary block leading-none">1</span>
+              <span className="text-label-xs text-on-surface-variant mt-2 uppercase tracking-widest">Total Processed</span>
+            </div>
+          </section>
+        )}
+
+        <section className="space-y-gutter">
+          <div className="flex items-center gap-4 mb-stack-md">
+            <h2 className="text-headline-md text-on-surface">Detailed Results</h2>
+            <div className="h-[1px] flex-grow bg-outline-variant/30"></div>
+          </div>
+          {reportData.results.map((res, idx) => renderResultCard(res, idx))}
+        </section>
+      </main>
+    );
   };
 
   return (
-    <div className="layout-container">
-      <header className="header">
-        <div className="logo" onClick={() => setSession(null)} style={{ cursor: 'pointer' }}>
-          <ShieldCheck size={32} />
-          <span style={{ background: 'linear-gradient(to right, #3b82f6, #8b5cf6)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', fontWeight: 'bold', fontSize: '1.6rem' }}>CertVerify</span>
-        </div>
-      </header>
-
-      <main>
-        {!session ? (
-          <div className="home-container" style={{ animation: 'fadeIn 0.5s ease-out', paddingTop: '8vh' }}>
-
-            {error && (
-              <div style={{ background: 'var(--status-fake-bg)', color: 'var(--status-fake)', padding: '16px', borderRadius: '8px', marginBottom: '24px', border: '1px solid var(--status-fake)', textAlign: 'center' }}>
-                {error}
-              </div>
-            )}
-
-            {loading && (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', margin: '40px 0', color: 'var(--accent-primary)' }}>
-                <Loader2 size={48} className="animate-spin" />
-                <p style={{ marginTop: '16px', fontWeight: '500' }}>Processing your request... This might take a moment.</p>
-              </div>
-            )}
-
-            {!loading && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-                
-
-
-                {/* Drive Link */}
-                <div className="glass-panel hover-lift">
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ background: 'rgba(139, 92, 246, 0.1)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: 'var(--accent-secondary)' }}>
-                      <LinkIcon size={32} />
-                    </div>
-                    <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Drive Link Verification</h3>
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem', marginBottom: '16px' }}>Paste a public Google Drive or direct file link.</p>
-                  </div>
-                  <form onSubmit={handleDriveSubmit} style={{ display: 'flex', gap: '8px' }}>
-                    <input 
-                      type="url" 
-                      placeholder="https://drive.google.com/..." 
-                      value={driveUrl}
-                      onChange={(e) => setDriveUrl(e.target.value)}
-                      required
-                      style={{ flex: 1, padding: '10px 16px', borderRadius: '8px', background: 'rgba(0,0,0,0.2)', border: '1px solid var(--glass-border)', color: 'white' }}
-                    />
-                    <button type="submit" className="btn-primary">Verify</button>
-                  </form>
-                </div>
-
-                {/* Batch Upload */}
-                <div className="glass-panel hover-lift" style={{ position: 'relative', cursor: 'pointer', textAlign: 'center' }}>
-                  <input 
-                    type="file" 
-                    accept=".pdf,image/*" 
-                    multiple
-                    onChange={handleFileUpload}
-                    style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
-                    title="Upload Certificates"
-                  />
-                  <div style={{ background: 'rgba(16, 185, 129, 0.1)', width: '64px', height: '64px', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', color: 'var(--status-real)' }}>
-                    <Upload size={32} />
-                  </div>
-                  <h3 style={{ fontSize: '1.25rem', marginBottom: '8px' }}>Batch Certificates</h3>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Upload up to 10 certificates (PDF, JPG, PNG) at once for verification.</p>
-                </div>
-
-              </div>
-            )}
-          </div>
-        ) : (
-          <div style={{ animation: 'fadeIn 0.5s ease-out' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
-              <div>
-                <h2 style={{ fontSize: '2rem', marginBottom: '8px' }}>Verification Report</h2>
-                <p style={{ color: 'var(--text-secondary)' }}>
-                  {session.sessionId && `Session ID: ${session.sessionId} • `} 
-                  {new Date(session.timestamp).toLocaleString()}
-                </p>
-              </div>
-              <button onClick={() => setSession(null)} className="btn-secondary">
-                Verify Another
-              </button>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px', marginBottom: '32px' }}>
-              <div className="glass-panel" style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '2rem', fontWeight: 'bold', color: 'var(--text-primary)' }}>{session.count || (session.results ? session.results.length : 1)}</div>
-                <div style={{ color: 'var(--text-secondary)' }}>Total Processed</div>
-              </div>
-            </div>
-
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '16px' }}>Detailed Results</h3>
-            <div style={{ display: 'grid', gap: '16px' }}>
-              {(session.results || [session.result]).filter(Boolean).map((result, i) => (
-                <div key={i} className="glass-panel" style={{ position: 'relative', overflow: 'hidden' }}>
-                  <div style={{ 
-                    position: 'absolute', left: 0, top: 0, bottom: 0, width: '4px',
-                    background: result.status === 'REAL' ? 'var(--status-real)' : result.status === 'SUSPICIOUS' ? 'var(--status-suspicious)' : result.status === 'FAKE' ? 'var(--status-fake)' : 'var(--status-error)'
-                  }} />
-                  
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
-                    <div>
-                      <h4 style={{ fontSize: '1.25rem', marginBottom: '4px' }}>{result.fileName || result.originalname || `Certificate ${i+1}`}</h4>
-                      {result.platform && <span style={{ color: 'var(--text-secondary)', fontSize: '0.875rem' }}>Platform: {result.platform}</span>}
-                    </div>
-                    <span className={`status-badge ${result.status?.toLowerCase() || 'error'}`}>
-                      {getStatusIcon(result.status)} 
-                      <span style={{ marginLeft: '4px' }}>
-                        {result.status === 'REAL' ? 'Authentic' : result.status === 'FAKE' ? 'Fraudulent' : 'Suspicious'} 
-                        {result.confidence !== undefined && ` (${(result.confidence * 100).toFixed(0)}%)`}
-                      </span>
-                    </span>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px', background: 'rgba(0,0,0,0.2)', padding: '16px', borderRadius: '8px' }}>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.875rem' }}>Detected Name</span>
-                      <strong>{result.detectedName || 'Unknown'}</strong>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)', display: 'block', fontSize: '0.875rem' }}>Verified Name (Source)</span>
-                      {result.verifiedName ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <strong>{result.verifiedName}</strong>
-                          {result.verificationUrl && (
-                            <a href={result.verificationUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent-primary)' }}>
-                              <ExternalLink size={14} />
-                            </a>
-                          )}
-                        </div>
-                      ) : 'Not found'}
-                    </div>
-                  </div>
-
-                  {result.reasons && result.reasons.length > 0 && (
-                    <div>
-                      <h5 style={{ fontSize: '1rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Analysis Log</h5>
-                      <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-                        {result.reasons.map((reason, idx) => (
-                          <li key={idx} style={{ marginBottom: '4px', fontSize: '0.875rem', display: 'flex', gap: '8px' }}>
-                            <span style={{ color: 'var(--accent-secondary)' }}>•</span> {reason}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-      </main>
+    <div className="flex flex-col min-h-screen">
+      {renderNav()}
+      {view === 'home' ? renderHome() : renderReport()}
     </div>
   );
 }
+
+export default App;
